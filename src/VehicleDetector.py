@@ -1,61 +1,96 @@
-# src/VehicleDetector.py
+import sys
 import cv2
+import torch
 import numpy as np
-import time
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
+from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtCore import QTimer
 import os
+import time
+import threading
 from datetime import datetime
 from utils.ROI_IO import load_roi
-from ultralytics import YOLO
-from Alert import trigger_alert  # ✅ alert 모듈 사용
+from utils.Alert import trigger_alert
+from utils.Logger import log_event
 
-VEHICLE_CLASSES = {2, 3, 5, 7}  # car, motorcycle, bus, truck
+CAR_CLASSES = [2, 3, 5, 7]  # car, motorcycle, bus, truck
 
-def is_inside_roi(point, roi):
-    if len(roi) == 4:
-        return cv2.pointPolygonTest(np.array(roi, dtype=np.int32), point, False) >= 0
-    return False
+class VehicleDetector(QWidget):
+    def __init__(self, profile_name="default", alert_duration=2.0):
+        super().__init__()
+        self.setWindowTitle("차량 감지 시스템")
+        self.setGeometry(200, 200, 900, 600)
 
-def run_detection(profile_name, stop_flag_func=None):
-    roi = load_roi()
-    if roi is None:
-        print("❌ ROI를 불러올 수 없습니다.")
-        return
+        self.profile_name = profile_name
+        self.alert_duration = alert_duration
 
-    cap = cv2.VideoCapture(1)
-    assert cap.isOpened(), "❌ 가상카메라 열기 실패"
+        self.model = torch.hub.load('ultralytics/yolov5', 'yolov5n', pretrained=True)
+        self.model.conf = 0.4
 
-    model = YOLO("models/yolov5n.pt")
-    model.fuse()
+        self.label = QLabel("초기화 중...")
+        self.status = QLabel("상태: 대기 중")
+        self.count_label = QLabel("차량 수: 0")
+        self.image_label = QLabel()
 
-    last_alert_time = 0
-    cooldown = 5  # 초 단위
+        layout = QVBoxLayout()
+        layout.addWidget(self.label)
+        layout.addWidget(self.status)
+        layout.addWidget(self.count_label)
+        layout.addWidget(self.image_label)
+        self.setLayout(layout)
 
-    while True:
-        if stop_flag_func and stop_flag_func():
-            print("[ℹ] 감지 루프 종료 요청 수신")
-            break
+        self.cap = cv2.VideoCapture(1)
+        self.roi = load_roi()
 
-        ret, frame = cap.read()
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.process_frame)
+        self.timer.start(125)  # 8fps = 1000ms / 8 = 125ms
+
+    def process_frame(self):
+        ret, frame = self.cap.read()
         if not ret:
-            continue
+            self.status.setText("카메라 입력 없음")
+            log_event("ERROR", "카메라 입력 없음")
+            return
 
-        results = model(frame, verbose=False)[0]
+        orig = frame.copy()
+        results = self.model(frame)
+        detections = results.pred[0]
 
-        vehicle_detected = False
-        for box in results.boxes:
-            cls = int(box.cls[0])
-            if cls in VEHICLE_CLASSES:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
-                if is_inside_roi((cx, cy), roi):
-                    vehicle_detected = True
-                    break
+        count = 0
+        for *xyxy, conf, cls in detections:
+            if int(cls) in CAR_CLASSES:
+                cx = int((xyxy[0] + xyxy[2]) / 2)
+                cy = int((xyxy[1] + xyxy[3]) / 2)
+                if self.is_inside_roi((cx, cy)):
+                    count += 1
+                    cv2.rectangle(orig, (int(xyxy[0]), int(xyxy[1])), (int(xyxy[2]), int(xyxy[3])), (0, 255, 0), 2)
 
-        now = time.time()
-        if vehicle_detected and now - last_alert_time > cooldown:
-            print("[🚗] 차량 감지됨!")
-            trigger_alert(profile_name=profile_name, volume=0.8)  # ✅ 알림 모듈 사용
-            last_alert_time = now
+        self.status.setText("상태: 감지 중")
+        self.count_label.setText(f"차량 수: {count}")
 
-    cap.release()
-    print("[✅] 감지 루프 종료")
+        if count > 0:
+            log_event("ALERT", f"차량 감지 - 프로필: {self.profile_name}")
+            threading.Thread(target=trigger_alert, args=(self.profile_name, self.alert_duration), daemon=True).start()
+
+        img = cv2.cvtColor(orig, cv2.COLOR_BGR2RGB)
+        h, w, ch = img.shape
+        bytes_per_line = ch * w
+        qimg = QImage(img.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        self.image_label.setPixmap(QPixmap.fromImage(qimg).scaled(800, 450, aspectRatioMode=1))
+
+    def is_inside_roi(self, point):
+        if len(self.roi) == 4:
+            return cv2.pointPolygonTest(self.roi, point, False) >= 0
+        return False
+
+    def closeEvent(self, event):
+        self.cap.release()
+        log_event("INFO", "차량 감지 시스템 종료")
+        event.accept()
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    win = VehicleDetector()
+    win.show()
+    sys.exit(app.exec_())
