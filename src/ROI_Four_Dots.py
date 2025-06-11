@@ -1,107 +1,119 @@
+import sys
 import cv2
-import json
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QMessageBox
+from PyQt5.QtGui import QPainter, QPen, QCursor, QPixmap, QImage, QColor
+from PyQt5.QtCore import Qt, QPoint
+import numpy as np
 import os
-import re
-import PySimpleGUI as sg
 
-# 🪟 GUI로 프로필 이름과 메모 입력받기
-def get_profile_info():
-    sg.theme('SystemDefault')
-    layout = [
-        [sg.Text("프로필 이름 (영문/숫자/언더바만):")],
-        [sg.Input(key="-NAME-")],
-        [sg.Text("이 화면에 대한 설명 메모 (예: 정문 CCTV 야간용):")],
-        [sg.Input(key="-MEMO-")],
-        [sg.Button("확인"), sg.Button("취소")]
-    ]
+class ROIDrawer(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("CCTV_Car_Detection - ROI 설정")
+        self.setCursor(QCursor(Qt.ArrowCursor))
+        self.setWindowFlag(Qt.WindowCloseButtonHint, True)
+        self.setGeometry(100, 100, 1280, 720)  # 기본 창 크기
 
-    window = sg.Window("프로필 정보 입력", layout)
-    name, memo = None, None
+        self.image = self.capture_frame()
+        self.dots = []
+        self.drag_index = None
+        self.dot_radius = 10
 
-    while True:
-        event, values = window.read()
-        if event in (sg.WINDOW_CLOSED, "취소"):
-            break
-        elif event == "확인":
-            raw = values["-NAME-"].strip()
-            memo_raw = values["-MEMO-"].strip()
-            if re.match(r'^[a-zA-Z0-9_]+$', raw):
-                name = raw
-                memo = memo_raw or "설명 없음"
-                break
-            else:
-                sg.popup("⚠️ 영문, 숫자, 언더바(_)만 입력 가능합니다.", title="입력 오류")
+        self.setMouseTracking(True)
+        self.saved = False
 
-    window.close()
-    return name, memo
+    def capture_frame(self):
+        cap = cv2.VideoCapture(1)  # OBS 가상카메라 번호
+        ret, frame = cap.read()
+        cap.release()
+        if ret:
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            h, w, ch = rgb.shape
+            bytes_per_line = ch * w
+            return QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        else:
+            return QImage(1280, 720, QImage.Format_RGB888)  # 빈 이미지
 
-# 👉 프로필 이름과 설명 메모 입력
-profile_name, memo = get_profile_info()
-if not profile_name:
-    print("사용자 취소 또는 잘못된 입력으로 종료됨.")
-    exit()
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.drawImage(0, 0, self.image.scaled(self.width(), self.height(), Qt.KeepAspectRatio))
 
-save_path = f"profiles/{profile_name}.json"
-os.makedirs("profiles", exist_ok=True)
+        # 점 그리기
+        for dot in self.dots:
+            color = QColor(139, 0, 0) if len(self.dots) < 4 else QColor(0, 255, 0)
+            painter.setPen(QPen(color, 2))
+            painter.setBrush(color)
+            painter.drawEllipse(dot, self.dot_radius, self.dot_radius)
 
-# 📷 가상카메라 영상 입력
-cap = cv2.VideoCapture(0)
-assert cap.isOpened(), "카메라를 열 수 없습니다."
+        # 선 그리기
+        if len(self.dots) >= 2:
+            pen = QPen(QColor(255, 69, 0) if len(self.dots) < 4 else QColor(0, 255, 0), 2, Qt.DashLine if len(self.dots) < 4 else Qt.SolidLine)
+            painter.setPen(pen)
+            for i in range(len(self.dots) - 1):
+                painter.drawLine(self.dots[i], self.dots[i + 1])
+            if len(self.dots) == 4:
+                painter.drawLine(self.dots[-1], self.dots[0])
 
-points = []
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            for i, dot in enumerate(self.dots):
+                if (event.pos() - dot).manhattanLength() <= self.dot_radius + 2:
+                    self.drag_index = i
+                    return
+            if len(self.dots) >= 4:
+                self.show_message("ROI는 최대 4개의 점만 지정할 수 있습니다.")
+                return
+            self.dots.append(event.pos())
+            self.update()
 
-# 🖱️ 마우스 클릭 처리
-def mouse_callback(event, x, y, flags, param):
-    global points
-    if event == cv2.EVENT_LBUTTONDOWN:
-        if len(points) < 4:
-            points.append((x, y))
+    def mouseMoveEvent(self, event):
+        if self.drag_index is not None:
+            self.dots[self.drag_index] = event.pos()
+            self.update()
 
-cv2.namedWindow("Set ROI")
-cv2.setMouseCallback("Set ROI", mouse_callback)
+    def mouseReleaseEvent(self, event):
+        self.drag_index = None
 
-while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Z and (event.modifiers() & Qt.ControlModifier):
+            if self.dots:
+                self.dots.pop()
+                self.update()
 
-    display = frame.copy()
+        elif event.key() == Qt.Key_S and (event.modifiers() & Qt.ControlModifier):
+            self.save_points()
+            self.show_message("ROI 좌표를 저장했습니다.")
 
-    for i, (x, y) in enumerate(points):
-        cv2.circle(display, (x, y), 5, (0, 255, 0), -1)
-        cv2.putText(display, f"{i+1}", (x+5, y-5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        elif event.key() == Qt.Key_Escape:
+            self.save_points()
+            self.close()
 
-    if len(points) == 4:
-        for i in range(4):
-            cv2.line(display, points[i], points[(i+1)%4], (255, 0, 0), 2)
+    def closeEvent(self, event):
+        if not self.saved:
+            self.save_points()
+        event.accept()
 
-    cv2.putText(display, "ESC: 저장 / Z: 마지막 점 취소", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
+    def save_points(self):
+        if not self.dots:
+            return
+        points = [(dot.x(), dot.y()) for dot in self.dots]
+        save_dir = os.path.join("src", "profiles")
+        os.makedirs(save_dir, exist_ok=True)
+        with open(os.path.join(save_dir, "roi_points.txt"), "w") as f:
+            for x, y in points:
+                f.write(f"{x},{y}\n")
+        self.saved = True
 
-    cv2.imshow("Set ROI", display)
-    key = cv2.waitKey(1)
+    def show_message(self, message):
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Information)
+        msg.setText(message)
+        msg.setWindowTitle("알림")
+        msg.setStandardButtons(QMessageBox.Ok)
+        msg.exec_()
 
-    if key == 27:
-        break
-    elif key == ord('z') and points:
-        removed = points.pop()
-        print(f"❌ 마지막 점 취소: {removed}")
-
-cap.release()
-cv2.destroyAllWindows()
-
-# 💾 ROI 좌표와 메모 저장
-if len(points) == 4:
-    h, w = frame.shape[:2]
-    normalized = [[round(x/w, 5), round(y/h, 5)] for (x, y) in points]
-
-    result = {
-        "memo": memo,
-        "roi": normalized
-    }
-
-    with open(save_path, 'w', encoding="utf-8") as f:
-        json.dump(result, f, indent=2, ensure_ascii=False)
-
-    print(f"[✔] ROI 좌표 및 메모 저장 완료: {save_path}")
-else:
-    print("[!] 저장 실패: 4개의 점을 찍지 않았습니다.")
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    window = ROIDrawer()
+    window.show()
+    sys.exit(app.exec_())
