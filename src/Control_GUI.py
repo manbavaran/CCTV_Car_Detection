@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QLabel, QVBoxLay
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from utils.ROI_IO import load_roi
 from VehicleDetector import run_detection
-from alert import init_alert_system, trigger_alert
+from Alert import init_alert_system, trigger_alert
 
 class DetectionThread(QThread):
     finished = pyqtSignal()
