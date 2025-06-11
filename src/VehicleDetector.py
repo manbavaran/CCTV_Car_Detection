@@ -5,10 +5,7 @@ import numpy as np
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import QTimer
-import os
-import time
 import threading
-from datetime import datetime
 from utils.ROI_IO import load_roi
 from utils.Alert import trigger_alert
 from utils.Logger import log_event
@@ -16,12 +13,13 @@ from utils.Logger import log_event
 CAR_CLASSES = [2, 3, 5, 7]  # car, motorcycle, bus, truck
 
 class VehicleDetector(QWidget):
-    def __init__(self, profile_name="default", alert_duration=2.0):
+    def __init__(self, profile_name="default", volume=0.8, alert_duration=2.0):
         super().__init__()
         self.setWindowTitle("차량 감지 시스템")
         self.setGeometry(200, 200, 900, 600)
 
         self.profile_name = profile_name
+        self.volume = volume
         self.alert_duration = alert_duration
 
         self.model = torch.hub.load('ultralytics/yolov5', 'yolov5n', pretrained=True)
@@ -39,12 +37,12 @@ class VehicleDetector(QWidget):
         layout.addWidget(self.image_label)
         self.setLayout(layout)
 
-        self.cap = cv2.VideoCapture(1)
+        self.cap = cv2.VideoCapture(1)  # 가상카메라 입력
         self.roi = load_roi()
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.process_frame)
-        self.timer.start(125)  # 8fps = 1000ms / 8 = 125ms
+        self.timer.start(125)  # 8fps
 
     def process_frame(self):
         ret, frame = self.cap.read()
@@ -71,7 +69,11 @@ class VehicleDetector(QWidget):
 
         if count > 0:
             log_event("ALERT", f"차량 감지 - 프로필: {self.profile_name}")
-            threading.Thread(target=trigger_alert, args=(self.profile_name, self.alert_duration), daemon=True).start()
+            threading.Thread(
+                target=trigger_alert,
+                args=(self.profile_name, self.volume, self.alert_duration),
+                daemon=True
+            ).start()
 
         img = cv2.cvtColor(orig, cv2.COLOR_BGR2RGB)
         h, w, ch = img.shape
