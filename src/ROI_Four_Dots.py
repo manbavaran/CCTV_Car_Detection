@@ -15,7 +15,13 @@ class ROIDrawer(QWidget):
         self.setCursor(QCursor(Qt.CrossCursor))
         self.setGeometry(200, 100, 1280, 720)
 
-        self.image = self.capture_frame()
+        try:
+            self.image = self.capture_frame()
+        except Exception as e:
+            print(f"[ERROR] 캡처 프레임 생성 중 예외 발생: {e}")
+            input("에러 발생! 엔터를 누르면 창이 닫힙니다.")
+            raise
+
         self.dots = []
         self.drag_index = None
         self.dot_radius = 12
@@ -23,16 +29,25 @@ class ROIDrawer(QWidget):
         self.setMouseTracking(True)
 
     def capture_frame(self):
-        # OBS/가상카메라 캡처 (번호 0)
-        cap = cv2.VideoCapture(0)
-        ret, frame = cap.read()
-        cap.release()
-        if ret:
+        try:
+            cap = cv2.VideoCapture(0)
+            if not cap.isOpened():
+                print("[ERROR] 카메라 열기 실패! (인덱스: 0)")
+                input("엔터를 누르면 창이 닫힙니다.")
+                sys.exit(1)
+            ret, frame = cap.read()
+            cap.release()
+            if not ret:
+                print("[ERROR] 카메라에서 프레임을 읽지 못했습니다.")
+                input("엔터를 누르면 창이 닫힙니다.")
+                sys.exit(1)
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w, ch = rgb.shape
             return QImage(rgb.data, w, h, ch * w, QImage.Format_RGB888)
-        else:
-            return QImage(1280, 720, QImage.Format_RGB888)
+        except Exception as e:
+            print(f"[ERROR] capture_frame() 예외 발생: {e}")
+            input("엔터를 누르면 창이 닫힙니다.")
+            sys.exit(1)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -73,15 +88,12 @@ class ROIDrawer(QWidget):
         self.drag_index = None
 
     def keyPressEvent(self, event):
-        # Ctrl+Z: 마지막 점 취소
         if event.key() == Qt.Key_Z and (event.modifiers() & Qt.ControlModifier):
             if self.dots:
                 self.dots.pop()
                 self.update()
-        # Ctrl+S: 저장
         elif event.key() == Qt.Key_S and (event.modifiers() & Qt.ControlModifier):
             self.save_points()
-        # ESC: 저장 후 종료
         elif event.key() == Qt.Key_Escape:
             self.save_points()
             self.close()
@@ -96,9 +108,13 @@ class ROIDrawer(QWidget):
             self.show_message("점 4개를 모두 지정해야 저장됩니다.")
             return
         points = [(dot.x(), dot.y()) for dot in self.dots]
-        save_roi(points)  # roi_io.py 함수 사용, 기본 프로필만
-        self.show_message("ROI 좌표를 저장했습니다. (ESC 또는 X로 창을 닫아주세요)")
-        self.saved = True
+        try:
+            save_roi(points)
+            self.show_message("ROI 좌표를 저장했습니다. (ESC 또는 X로 창을 닫아주세요)")
+            self.saved = True
+        except Exception as e:
+            print(f"[ERROR] save_roi() 예외 발생: {e}")
+            input("엔터를 누르면 창이 닫힙니다.")
 
     def show_message(self, message):
         msg = QMessageBox(self)
@@ -109,7 +125,11 @@ class ROIDrawer(QWidget):
         msg.exec_()
 
 if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    window = ROIDrawer()
-    window.show()
-    sys.exit(app.exec_())
+    try:
+        app = QApplication(sys.argv)
+        window = ROIDrawer()
+        window.show()
+        sys.exit(app.exec_())
+    except Exception as e:
+        print(f"[ERROR] 메인 루프 예외 발생: {e}")
+        input("엔터를 누르면 창이 닫힙니다.")

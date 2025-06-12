@@ -1,7 +1,8 @@
 import sys
+import os
+import subprocess
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QMessageBox
 from VehicleDetector import VehicleDetector
-from ROI_Four_Dots import ROIDrawer
 from VirtualCamSender import VideoWindow
 
 class MainWindow(QWidget):
@@ -59,8 +60,12 @@ class MainWindow(QWidget):
             self.btn_stop.setEnabled(False)
 
     def open_roi_setting(self):
-        roi_drawer = ROIDrawer()
-        roi_drawer.exec_() if hasattr(roi_drawer, 'exec_') else roi_drawer.show()
+        # ROI_Four_Dots.py를 별도의 콘솔로 띄움
+        script_path = os.path.join(os.path.dirname(__file__), 'ROI_Four_Dots.py')
+        subprocess.Popen(
+            [sys.executable, script_path],
+            creationflags=subprocess.CREATE_NEW_CONSOLE
+        )
 
     def open_preview(self):
         if self.preview_window is None:
