@@ -1,8 +1,0 @@
-{
-    "default": {
-        "sound": "alert.mp3",
-        "volume": 0.8,
-        "duration": 2.0,
-        "enabled": true
-    }
-}
