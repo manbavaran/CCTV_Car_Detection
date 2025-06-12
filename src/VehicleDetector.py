@@ -14,16 +14,23 @@ from logger import log_event
 
 CAR_CLASSES = [2, 3, 5, 7]  # COCO: car, motorcycle, bus, truck
 
-def play_alert_sound(volume=0.8, duration=2):
+def play_alert_sound(volume=0.8, duration=2, total_time=5):
+    """
+    음원(mp3)을 total_time(초) 동안 반복 재생.
+    duration: mp3 파일 한 번 재생 시간(초)
+    total_time: 전체 재생 시간(초)
+    """
     import pygame
-    sound_path = os.path.join(os.path.dirname(__file__), "..", "resources", "sounds", "alert.mp3")
+    sound_path = os.path.join(os.path.dirname(__file__), "..", "resources", "sounds", "Car_Alarm.mp3")
     try:
         pygame.mixer.init()
-        pygame.mixer.music.load(sound_path)
-        pygame.mixer.music.set_volume(volume)
-        pygame.mixer.music.play()
-        time.sleep(duration)
-        pygame.mixer.music.stop()
+        repeat = int(total_time / duration + 0.5)
+        for _ in range(repeat):
+            pygame.mixer.music.load(sound_path)
+            pygame.mixer.music.set_volume(volume)
+            pygame.mixer.music.play()
+            time.sleep(duration)
+            pygame.mixer.music.stop()
     except Exception as e:
         print("알림음 재생 실패:", e)
 
@@ -67,15 +74,16 @@ def nms(boxes, scores, iou_threshold):
     return indices
 
 class VehicleDetector(QWidget):
-    def __init__(self, volume=0.8, duration=2, cooldown=5, fps=5):
+    def __init__(self, volume=0.8, duration=2, total_time=5, cooldown=6, fps=5):
         super().__init__()
         self.setWindowTitle("차량 감지 시스템")
         self.setGeometry(200, 200, 900, 600)
 
         self.volume = volume
-        self.duration = duration
-        self.cooldown = cooldown
-        self.fps = fps
+        self.duration = duration       # mp3 한 번 재생 길이(초)
+        self.total_time = total_time   # 총 반복 재생 시간(초)
+        self.cooldown = cooldown      # 연속 알림 방지 시간(초)
+        self.fps = fps                # 프레임 처리 속도(초당)
         self.last_alert_time = 0
 
         # 모델 로드 (ONNX)
@@ -181,7 +189,7 @@ class VehicleDetector(QWidget):
         if count > 0 and now - self.last_alert_time > self.cooldown:
             threading.Thread(
                 target=play_alert_sound,
-                args=(self.volume, self.duration),
+                args=(self.volume, self.duration, self.total_time),  # 5초 동안 반복
                 daemon=True
             ).start()
             log_event("ALERT", "차량 감지 알림 발생")
