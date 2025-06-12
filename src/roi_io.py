@@ -4,57 +4,43 @@ from datetime import datetime
 import cv2
 import numpy as np
 
-# 프로젝트 루트 기준 디렉토리 경로 생성
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# 프로젝트 루트 기준 절대경로 계산
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROI_DIR = os.path.join(BASE_DIR, "profiles")
-LOG_DIR = os.path.join(BASE_DIR, "..", "logs", "roi")
+ROI_PATH = os.path.join(ROI_DIR, "roi_points.pkl")
+LOG_DIR = os.path.join(BASE_DIR, "logs", "roi")
 
-def get_roi_path(profile_name="default"):
-    """프로필 이름별 ROI 파일 절대 경로 반환 (.pkl)"""
+def save_roi(points):
+    """점 네 개로 이루어진 ROI 좌표(리스트) 저장 + 로그"""
     os.makedirs(ROI_DIR, exist_ok=True)
-    return os.path.join(ROI_DIR, f"{profile_name}_roi.pkl")
+    with open(ROI_PATH, "wb") as f:
+        pickle.dump(points, f)
+    log_roi_save()
 
-def load_roi(profile_name="default"):
-    """
-    ROI 좌표(pickle) 불러오기
-    - profile_name: 프로필명
-    - return: ROI 점 리스트 또는 None
-    """
-    path = get_roi_path(profile_name)
-    if os.path.exists(path):
-        with open(path, "rb") as f:
+def load_roi():
+    """ROI 좌표(리스트) 불러오기. 없으면 None"""
+    if os.path.exists(ROI_PATH):
+        with open(ROI_PATH, "rb") as f:
             return pickle.load(f)
     return None
 
-def save_roi(points, profile_name="default"):
-    """
-    ROI 좌표(pickle) 저장 + 로그 기록
-    - points: ROI 점 리스트 [(x, y), ...]
-    - profile_name: 프로필명
-    """
-    path = get_roi_path(profile_name)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "wb") as f:
-        pickle.dump(points, f)
-    log_roi_save(path, profile_name)
-
-def log_roi_save(path, profile_name="default"):
+def log_roi_save():
     """ROI 저장 로그를 기록"""
     os.makedirs(LOG_DIR, exist_ok=True)
     now = datetime.now()
     log_file = os.path.join(LOG_DIR, f"{now:%Y-%m-%d}.log")
     timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
     with open(log_file, "a", encoding="utf-8") as f:
-        f.write(f"[{timestamp}] 프로필({profile_name}) ROI 저장됨: {os.path.abspath(path)}\n")
+        f.write(f"[{timestamp}] ROI 저장: {os.path.abspath(ROI_PATH)}\n")
 
 def draw_roi(frame, roi_points, show=True, color=(0, 255, 0), thickness=2):
     """
-    ROI 다각형을 프레임에 그려 반환합니다.
+    ROI(사각형) 폴리라인을 프레임 위에 그려 반환.
     - frame: OpenCV 이미지(ndarray)
-    - roi_points: (N, 2) ndarray 또는 list of (x, y)
-    - show: True일 때만 ROI 표시
+    - roi_points: 점 리스트 [(x, y), ...]
+    - show: True면 그림
     """
-    if show and roi_points is not None and len(roi_points) >= 3:
+    if show and roi_points is not None and len(roi_points) == 4:
         roi_pts = np.array(roi_points, dtype=np.int32).reshape(-1, 1, 2)
         cv2.polylines(frame, [roi_pts], isClosed=True, color=color, thickness=thickness, lineType=cv2.LINE_AA)
     return frame
