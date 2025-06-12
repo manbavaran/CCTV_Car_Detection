@@ -1,7 +1,13 @@
 import os
 import json
 
-CONFIG_DIR = "config"
+# 절대 경로 설정
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CONFIG_DIR = os.path.join(BASE_DIR, "config")
+PROFILES_DIR = os.path.join(BASE_DIR, "src", "profiles")
+LOGS_DIR = os.path.join(BASE_DIR, "logs")
+MEDIA_DIR = os.path.join(BASE_DIR, "media")
+
 PROFILES_LIST_FILE = os.path.join(CONFIG_DIR, "profiles.json")
 DEFAULT_PROFILE_FILE = os.path.join(CONFIG_DIR, "default_profile.txt")
 
@@ -28,16 +34,15 @@ def create_profile(profile_name, description=""):
     save_profiles(profiles)
 
     # profile-specific directories
-    os.makedirs(f"src/profiles/{profile_name}", exist_ok=True)
-    os.makedirs(f"logs/{profile_name}", exist_ok=True)
-    os.makedirs(f"media/{profile_name}", exist_ok=True)
+    os.makedirs(os.path.join(PROFILES_DIR, profile_name), exist_ok=True)
+    os.makedirs(os.path.join(LOGS_DIR, profile_name), exist_ok=True)
+    os.makedirs(os.path.join(MEDIA_DIR, profile_name), exist_ok=True)
 
 def delete_profile(profile_name):
     profiles = get_profiles()
     profiles = [p for p in profiles if p["name"] != profile_name]
     save_profiles(profiles)
-
-    # NOTE: 실제 폴더 삭제는 위험할 수 있으므로 생략. 필요시 수동 삭제 권장
+    # 주의: 실제 디렉토리 삭제는 안전 문제로 생략 (수동 삭제 권장)
 
 def get_default_profile():
     if os.path.exists(DEFAULT_PROFILE_FILE):

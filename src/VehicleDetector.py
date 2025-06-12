@@ -1,5 +1,3 @@
-# src/VehicleDetector.py
-
 import sys
 import cv2
 import torch
@@ -20,7 +18,15 @@ CAR_CLASSES = [2, 3, 5, 7]  # car, motorcycle, bus, truck
 
 
 class VehicleDetector(QWidget):
-    def __init__(self, profile_name="default", volume=0.8, duration=3, cooldown=5, model_path="yolov5n"):
+    def __init__(
+        self,
+        profile_name="default",
+        volume=0.8,
+        duration=3,
+        cooldown=5,
+        model_path="yolov5n",
+        fps=8
+    ):
         super().__init__()
         self.setWindowTitle("차량 감지 시스템")
         self.setGeometry(200, 200, 900, 600)
@@ -29,11 +35,18 @@ class VehicleDetector(QWidget):
         self.volume = volume
         self.duration = duration
         self.cooldown = cooldown
+        self.model_path = model_path
+        self.fps = fps
         self.last_alert_time = 0
 
         # 모델 로드
-        self.model = torch.hub.load('ultralytics/yolov5', model_path, pretrained=True)
-        self.model.conf = 0.4
+        try:
+            self.model = torch.hub.load('ultralytics/yolov5', model_path, pretrained=True)
+            self.model.conf = 0.4
+        except Exception as e:
+            QMessageBox.critical(self, "모델 로드 실패", f"모델 로드 중 오류 발생: {str(e)}")
+            self.close()
+            return
 
         # UI 요소
         self.label = QLabel(f"프로필: {self.profile_name}")
@@ -49,7 +62,7 @@ class VehicleDetector(QWidget):
         self.setLayout(layout)
 
         # ROI 정보
-        self.roi = load_roi()
+        self.roi = load_roi(profile_name)
         if self.roi is None or len(self.roi) != 4:
             QMessageBox.critical(self, "오류", "ROI 정보가 올바르지 않습니다. 설정 후 다시 실행해주세요.")
             self.close()
@@ -62,10 +75,10 @@ class VehicleDetector(QWidget):
             self.close()
             return
 
-        # 타이머 시작 (8fps)
+        # 타이머 시작
         self.timer = QTimer()
         self.timer.timeout.connect(self.process_frame)
-        self.timer.start(125)
+        self.timer.start(int(1000 / self.fps))  # fps 조절
 
         log_event(self.profile_name, "감지 시작")
 
@@ -107,9 +120,7 @@ class VehicleDetector(QWidget):
         self.image_label.setPixmap(QPixmap.fromImage(qimg).scaled(800, 450, aspectRatioMode=1))
 
     def is_inside_roi(self, point):
-        if len(self.roi) == 4:
-            return cv2.pointPolygonTest(self.roi, point, False) >= 0
-        return False
+        return cv2.pointPolygonTest(self.roi, point, False) >= 0
 
     def closeEvent(self, event):
         self.cap.release()
@@ -117,8 +128,8 @@ class VehicleDetector(QWidget):
         event.accept()
 
 
-if __name__ == '__main__':
+def run_detection(profile_name, stop_check, volume, duration):
     app = QApplication(sys.argv)
-    win = VehicleDetector()
+    win = VehicleDetector(profile_name=profile_name, volume=volume, duration=duration)
     win.show()
-    sys.exit(app.exec_())
+    app.exec_()

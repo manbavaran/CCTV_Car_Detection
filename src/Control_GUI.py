@@ -10,6 +10,7 @@ from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from utils.roi_io import load_roi
 from utils.alert_utils import get_sound_list, load_alert_config, play_alert_sound
 from utils.model_utils import get_model_list
+from utils.popup import PopupPreviewWidget  # 알림창 프리뷰 추가
 from VehicleDetector import run_detection
 
 DEFAULT_PROFILE = "default"
@@ -42,7 +43,7 @@ class ControlGUI(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("차량 감지 제어판")
-        self.setGeometry(200, 200, 650, 500)
+        self.setGeometry(200, 200, 800, 600)
         self.profile_name = DEFAULT_PROFILE
         self.alert_config = load_alert_config(self.profile_name)
 
@@ -92,9 +93,11 @@ class ControlGUI(QWidget):
     def init_alert_tab(self):
         self.volume_label = QLabel("음량 (0.0~1.0):")
         self.volume_input = QLineEdit(str(self.alert_config.get("volume", 0.8)))
+        self.volume_input.textChanged.connect(self.update_preview)
 
         self.duration_label = QLabel("지속 시간 (초):")
         self.duration_input = QLineEdit(str(self.alert_config.get("duration", 2)))
+        self.duration_input.textChanged.connect(self.update_preview)
 
         self.sound_list = QListWidget()
         self.sound_list.addItems(get_sound_list())
@@ -104,8 +107,13 @@ class ControlGUI(QWidget):
             if items:
                 self.sound_list.setCurrentItem(items[0])
 
+        self.sound_list.itemSelectionChanged.connect(self.update_preview)
+
         self.play_sound_btn = QPushButton("선택한 소리 재생")
         self.play_sound_btn.clicked.connect(self.preview_sound)
+
+        self.popup_preview = PopupPreviewWidget(profile_name=self.profile_name)
+        self.popup_preview.setFixedHeight(150)
 
         layout = QVBoxLayout()
         layout.addWidget(self.volume_label)
@@ -115,7 +123,12 @@ class ControlGUI(QWidget):
         layout.addWidget(QLabel("사용 가능한 알림음:"))
         layout.addWidget(self.sound_list)
         layout.addWidget(self.play_sound_btn)
+        layout.addWidget(QLabel("알림창 미리보기:"))
+        layout.addWidget(self.popup_preview)
         self.alert_tab.setLayout(layout)
+
+        # 초기 미리보기 반영
+        self.update_preview()
 
     def init_system_tab(self):
         self.fps_label = QLabel("감지 FPS:")
@@ -179,6 +192,9 @@ class ControlGUI(QWidget):
         if selected:
             sound_name = selected.text()
             play_alert_sound(sound_name, float(self.volume_input.text()), float(self.duration_input.text()))
+
+    def update_preview(self):
+        self.popup_preview.update_preview()
 
 
 if __name__ == '__main__':
