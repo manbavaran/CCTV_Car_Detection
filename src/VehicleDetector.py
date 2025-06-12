@@ -5,21 +5,16 @@ import os
 import time
 import threading
 import onnxruntime as ort
-from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout, QMessageBox
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QMessageBox
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import QTimer
 
-from roi_io import load_roi, draw_roi
+from roi_io import load_roi
 from logger import log_event
 
 CAR_CLASSES = [2, 3, 5, 7]  # COCO: car, motorcycle, bus, truck
 
 def play_alert_sound(volume=0.8, duration=2, total_time=5):
-    """
-    음원(mp3)을 total_time(초) 동안 반복 재생.
-    duration: mp3 파일 한 번 재생 시간(초)
-    total_time: 전체 재생 시간(초)
-    """
     import pygame
     sound_path = os.path.join(os.path.dirname(__file__), "..", "resources", "sounds", "Car_Alarm.mp3")
     try:
@@ -37,17 +32,15 @@ def play_alert_sound(volume=0.8, duration=2, total_time=5):
 def preprocess(frame, img_size=640):
     img = cv2.resize(frame, (img_size, img_size))
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img = img.transpose(2, 0, 1)  # HWC→CHW
+    img = img.transpose(2, 0, 1)
     img = np.ascontiguousarray(img, dtype=np.float32) / 255.0
     img = np.expand_dims(img, 0)
     return img
 
 def xywh2xyxy(x, y, w, h):
-    # x, y, w, h → x1, y1, x2, y2
     return [x - w / 2, y - h / 2, x + w / 2, y + h / 2]
 
 def nms(boxes, scores, iou_threshold):
-    # 간단 NMS. (YOLO ONNX 결과 후처리용)
     if len(boxes) == 0:
         return []
     boxes = np.array(boxes)
@@ -61,7 +54,6 @@ def nms(boxes, scores, iou_threshold):
         yy1 = np.maximum(boxes[i, 1], boxes[idxs[1:], 1])
         xx2 = np.minimum(boxes[i, 2], boxes[idxs[1:], 2])
         yy2 = np.minimum(boxes[i, 3], boxes[idxs[1:], 3])
-
         w = np.maximum(0, xx2 - xx1)
         h = np.maximum(0, yy2 - yy1)
         inter = w * h
@@ -69,24 +61,35 @@ def nms(boxes, scores, iou_threshold):
         area2 = (boxes[idxs[1:], 2] - boxes[idxs[1:], 0]) * (boxes[idxs[1:], 3] - boxes[idxs[1:], 1])
         union = area1 + area2 - inter
         iou = inter / (union + 1e-6)
-
         idxs = idxs[1:][iou < iou_threshold]
     return indices
+
+def scale_roi(roi, src_shape, disp_shape):
+    src_h, src_w = src_shape
+    disp_h, disp_w = disp_shape
+    scale_x = disp_w / src_w
+    scale_y = disp_h / src_h
+    return [(int(x * scale_x), int(y * scale_y)) for (x, y) in roi]
+
+def draw_roi(frame, roi_points, color=(0,255,0), thickness=2):
+    pts = np.array(roi_points, dtype=np.int32)
+    cv2.polylines(frame, [pts], isClosed=True, color=color, thickness=thickness)
+    return frame
 
 class VehicleDetector(QWidget):
     def __init__(self, volume=0.8, duration=2, total_time=5, cooldown=6, fps=5):
         super().__init__()
         self.setWindowTitle("차량 감지 시스템")
-        self.setGeometry(200, 200, 900, 600)
+        self.setGeometry(100, 100, 1280, 720)  # 원하는 크기로 변경 가능
 
         self.volume = volume
-        self.duration = duration       # mp3 한 번 재생 길이(초)
-        self.total_time = total_time   # 총 반복 재생 시간(초)
-        self.cooldown = cooldown      # 연속 알림 방지 시간(초)
-        self.fps = fps                # 프레임 처리 속도(초당)
+        self.duration = duration
+        self.total_time = total_time
+        self.cooldown = cooldown
+        self.fps = fps
         self.last_alert_time = 0
 
-        # 모델 로드 (ONNX)
+        # 모델 로드
         try:
             base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             onnx_path = os.path.join(base_dir, "src", "models", "yolov5n.onnx")
@@ -96,17 +99,6 @@ class VehicleDetector(QWidget):
             self.close()
             return
 
-        # UI 요소
-        self.status = QLabel("상태: 대기 중")
-        self.count_label = QLabel("차량 수: 0")
-        self.image_label = QLabel()
-
-        layout = QVBoxLayout()
-        layout.addWidget(self.status)
-        layout.addWidget(self.count_label)
-        layout.addWidget(self.image_label)
-        self.setLayout(layout)
-
         # ROI 정보
         self.roi = load_roi()
         if self.roi is None or len(self.roi) != 4:
@@ -114,35 +106,37 @@ class VehicleDetector(QWidget):
             self.close()
             return
 
-        # 카메라 연결 (OBS/가상캠 번호 1)
+        # 카메라 연결
         self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
             QMessageBox.critical(self, "카메라 오류", "가상카메라를 열 수 없습니다.")
             self.close()
             return
 
+        # 이미지 출력용 라벨
+        self.image_label = QLabel()
+        layout = QVBoxLayout()
+        layout.addWidget(self.image_label)
+        self.setLayout(layout)
+
         # 타이머 시작
         self.timer = QTimer()
         self.timer.timeout.connect(self.process_frame)
-        self.timer.start(int(1000 / self.fps))  # fps 조절
+        self.timer.start(int(1000 / self.fps))
 
         log_event("INFO", "차량 감지 시작")
 
     def process_frame(self):
         ret, frame = self.cap.read()
         if not ret:
-            self.status.setText("카메라 입력 없음")
             return
 
         orig = frame.copy()
         img_input = preprocess(frame, img_size=640)
         outputs = self.ort_session.run(None, {"images": img_input})
 
-        # YOLOv5 ONNX outputs[0] shape: (1, 25200, 85)
         pred = outputs[0][0]
-        boxes = []
-        scores = []
-        classes = []
+        boxes, scores, classes = [], [], []
         conf_thres = 0.4
         iou_thres = 0.45
         img_h, img_w = frame.shape[:2]
@@ -155,7 +149,6 @@ class VehicleDetector(QWidget):
             if conf > conf_thres and class_id in CAR_CLASSES:
                 x, y, w, h = det[0:4]
                 box = xywh2xyxy(x, y, w, h)
-                # 이미지 크기 보정
                 box = [
                     int(box[0] / 640 * img_w),
                     int(box[1] / 640 * img_h),
@@ -166,39 +159,36 @@ class VehicleDetector(QWidget):
                 scores.append(float(conf))
                 classes.append(class_id)
 
-        # NMS
         nms_idx = nms(boxes, scores, iou_thres)
         count = 0
         for i in nms_idx:
             box = boxes[i]
             class_id = classes[i]
-            # 박스 중심점 계산 (ROI 포함여부)
             cx = int((box[0] + box[2]) / 2)
             cy = int((box[1] + box[3]) / 2)
             if self.is_inside_roi((cx, cy)):
                 count += 1
                 cv2.rectangle(orig, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
 
-        # ROI 폴리라인 시각화
-        orig = draw_roi(orig, self.roi, show=True)
-
-        self.status.setText("상태: 감지 중")
-        self.count_label.setText(f"차량 수: {count}")
+        # ---- ROI 박스 표시 (창 크기에 맞게 스케일링) ----
+        disp_w, disp_h = self.image_label.width() or 1280, self.image_label.height() or 720
+        img_rgb = cv2.cvtColor(orig, cv2.COLOR_BGR2RGB)
+        h, w, ch = img_rgb.shape
+        scaled_roi = scale_roi(self.roi, (h, w), (disp_h, disp_w))
+        disp_img = cv2.resize(img_rgb, (disp_w, disp_h))
+        disp_img = draw_roi(disp_img, scaled_roi, color=(0,255,0), thickness=2)
+        qimg = QImage(disp_img.data, disp_w, disp_h, ch * disp_w, QImage.Format_RGB888)
+        self.image_label.setPixmap(QPixmap.fromImage(qimg))
 
         now = time.time()
         if count > 0 and now - self.last_alert_time > self.cooldown:
             threading.Thread(
                 target=play_alert_sound,
-                args=(self.volume, self.duration, self.total_time),  # 5초 동안 반복
+                args=(self.volume, self.duration, self.total_time),
                 daemon=True
             ).start()
             log_event("ALERT", "차량 감지 알림 발생")
             self.last_alert_time = now
-
-        img_rgb = cv2.cvtColor(orig, cv2.COLOR_BGR2RGB)
-        h, w, ch = img_rgb.shape
-        qimg = QImage(img_rgb.data, w, h, ch * w, QImage.Format_RGB888)
-        self.image_label.setPixmap(QPixmap.fromImage(qimg).scaled(800, 450, aspectRatioMode=1))
 
     def is_inside_roi(self, point):
         return cv2.pointPolygonTest(np.array(self.roi, dtype=np.int32), point, False) >= 0
