@@ -115,7 +115,7 @@ class VehicleDetector(QWidget):
             return
 
         # 카메라 연결 (OBS/가상캠 번호 1)
-        self.cap = cv2.VideoCapture(1)
+        self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
             QMessageBox.critical(self, "카메라 오류", "가상카메라를 열 수 없습니다.")
             self.close()
