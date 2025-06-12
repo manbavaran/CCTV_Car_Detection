@@ -10,7 +10,7 @@ from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from utils.roi_io import load_roi
 from utils.alert_utils import get_sound_list, load_alert_config, play_alert_sound
 from utils.model_utils import get_model_list
-from utils.popup import PopupPreviewWidget  # 알림창 프리뷰 추가
+from widgets.popup_widget import PopupPreviewWidget
 from VehicleDetector import run_detection
 
 DEFAULT_PROFILE = "default"
@@ -82,8 +82,8 @@ class ControlGUI(QWidget):
         self.quit_btn.clicked.connect(self.close)
 
         layout = QVBoxLayout()
-        layout.addWidget(self.status_label)
         layout.addWidget(self.detect_btn)
+        layout.addWidget(self.status_label)
         layout.addWidget(self.auto_exit_check)
         layout.addWidget(self.roi_check)
         layout.addWidget(self.view_log_btn)
@@ -112,7 +112,8 @@ class ControlGUI(QWidget):
         self.play_sound_btn = QPushButton("선택한 소리 재생")
         self.play_sound_btn.clicked.connect(self.preview_sound)
 
-        self.popup_preview = PopupPreviewWidget(profile_name=self.profile_name)
+        # 미리보기 위젯: profile_name 대신 config를 넘겨서 초기 설정을 표시
+        self.popup_preview = PopupPreviewWidget(config=self.alert_config)
         self.popup_preview.setFixedHeight(150)
 
         layout = QVBoxLayout()
@@ -127,7 +128,6 @@ class ControlGUI(QWidget):
         layout.addWidget(self.popup_preview)
         self.alert_tab.setLayout(layout)
 
-        # 초기 미리보기 반영
         self.update_preview()
 
     def init_system_tab(self):
@@ -194,7 +194,18 @@ class ControlGUI(QWidget):
             play_alert_sound(sound_name, float(self.volume_input.text()), float(self.duration_input.text()))
 
     def update_preview(self):
-        self.popup_preview.update_preview()
+        config = {
+            "volume": float(self.volume_input.text()) if self.volume_input.text() else 0.8,
+            "duration": float(self.duration_input.text()) if self.duration_input.text() else 2,
+            "sound": self.sound_list.currentItem().text() if self.sound_list.currentItem() else "",
+            "message": "차량이 감지되었습니다.",
+            "title": "차량 감지 알림!",
+            "width": 300,
+            "height": 100,
+            "bg_color": "#ffffcc",
+            "enabled": True
+        }
+        self.popup_preview.update_preview(config)
 
 
 if __name__ == '__main__':

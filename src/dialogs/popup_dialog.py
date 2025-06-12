@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtGui import QColor
 from PyQt5.QtCore import Qt
-from utils.popup import PopupPreviewWidget, load_popup_config, save_popup_config
+from utils.popup_config import PopupPreviewWidget, load_popup_config, save_popup_config
 
 
 class PopupAdvancedDialog(QDialog):

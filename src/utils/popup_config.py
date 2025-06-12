@@ -1,11 +1,9 @@
-# src/utils/popup.py
-
+import os
+import json
 from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout, QPushButton
 from PyQt5.QtGui import QColor, QPalette
 from PyQt5.QtCore import Qt
 import pyttsx3
-import json
-import os
 
 CONFIG_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../config/alert_popup_config.json"))
 
@@ -23,13 +21,13 @@ def load_popup_config():
         "tts": False
     }
 
-def save_popup_config(config):
+def save_popup_config(config: dict):
     os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
 
 class PopupPreviewWidget(QWidget):
-    def __init__(self, config, parent=None):
+    def __init__(self, config: dict, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.Widget)
 
@@ -51,7 +49,7 @@ class PopupPreviewWidget(QWidget):
         self.config = config
         self.update_preview(config)
 
-    def update_preview(self, config):
+    def update_preview(self, config: dict):
         self.config = config
         self.setFixedSize(config.get("width", 300), config.get("height", 100))
         self.label_title.setText(config.get("title", "차량 감지 알림!"))
