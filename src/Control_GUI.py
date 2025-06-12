@@ -1,116 +1,185 @@
 import sys
 import os
 from PyQt5.QtWidgets import (
-    QApplication, QWidget, QTabWidget, QVBoxLayout, QPushButton, QLabel, QCheckBox,
-    QHBoxLayout, QListWidget, QLineEdit, QGroupBox, QFormLayout, QSlider, QFileDialog
+    QApplication, QWidget, QPushButton, QLabel, QVBoxLayout, QHBoxLayout,
+    QFileDialog, QMessageBox, QCheckBox, QTabWidget, QLineEdit, QListWidget,
+    QSpinBox, QComboBox
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QThread, pyqtSignal, Qt
+
+from utils.roi_io import load_roi
+from utils.alert_utils import get_sound_list, load_alert_config, play_alert_sound
+from utils.model_utils import get_model_list
+from VehicleDetector import run_detection
+
+DEFAULT_PROFILE = "default"
+
+class DetectionThread(QThread):
+    finished = pyqtSignal()
+
+    def __init__(self, profile_name, volume, duration, auto_exit):
+        super().__init__()
+        self.profile_name = profile_name
+        self.volume = volume
+        self.duration = duration
+        self.auto_exit = auto_exit
+        self._running = True
+
+    def run(self):
+        run_detection(self.profile_name, self.stop_check, self.volume, self.duration)
+        self.finished.emit()
+        if self.auto_exit:
+            os._exit(0)
+
+    def stop_check(self):
+        return not self._running
+
+    def stop(self):
+        self._running = False
+
 
 class ControlGUI(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("차량 감지 시스템")
-        self.setGeometry(100, 100, 600, 500)
+        self.setWindowTitle("차량 감지 제어판")
+        self.setGeometry(200, 200, 650, 500)
+        self.profile_name = DEFAULT_PROFILE
+        self.alert_config = load_alert_config(self.profile_name)
 
         self.tabs = QTabWidget()
+        self.detect_tab = QWidget()
+        self.alert_tab = QWidget()
+        self.system_tab = QWidget()
 
-        self.tabs.addTab(self.profile_tab_ui(), "프로필")
-        self.tabs.addTab(self.detection_tab_ui(), "감지")
-        self.tabs.addTab(self.alert_tab_ui(), "알림 설정")
-        self.tabs.addTab(self.system_tab_ui(), "시스템 설정")
+        self.tabs.addTab(self.detect_tab, "감지")
+        self.tabs.addTab(self.alert_tab, "알림 설정")
+        self.tabs.addTab(self.system_tab, "시스템")
 
-        main_layout = QVBoxLayout()
-        main_layout.addWidget(self.tabs)
-        self.setLayout(main_layout)
+        self.init_detect_tab()
+        self.init_alert_tab()
+        self.init_system_tab()
 
-    def profile_tab_ui(self):
-        tab = QWidget()
         layout = QVBoxLayout()
+        layout.addWidget(self.tabs)
+        self.setLayout(layout)
 
-        self.profile_list = QListWidget()
-        layout.addWidget(QLabel("프로필 목록"))
-        layout.addWidget(self.profile_list)
+        self.detector_thread = None
+        self.running = False
 
-        btn_layout = QHBoxLayout()
-        btn_layout.addWidget(QPushButton("프로필 추가"))
-        btn_layout.addWidget(QPushButton("프로필 삭제"))
-        layout.addLayout(btn_layout)
+    def init_detect_tab(self):
+        self.detect_btn = QPushButton("차량 감지 시작")
+        self.detect_btn.clicked.connect(self.toggle_detection)
 
-        self.auto_profile_cb = QCheckBox("프로그램 시작 시 이 프로필 자동 선택")
-        layout.addWidget(self.auto_profile_cb)
+        self.status_label = QLabel("상태: 대기 중")
+        self.auto_exit_check = QCheckBox("감지 종료 후 프로그램 종료")
+        self.roi_check = QCheckBox("ROI 표시 켜기")
 
-        layout.addWidget(QPushButton("ROI 설정 (점찍기)"))
-        layout.addWidget(QLabel("점 크기 설정 (px)"))
-        self.point_size_slider = QSlider(Qt.Horizontal)
-        self.point_size_slider.setMinimum(1)
-        self.point_size_slider.setMaximum(20)
-        layout.addWidget(self.point_size_slider)
+        self.view_log_btn = QPushButton("로그 열기")
+        self.view_log_btn.clicked.connect(self.open_log_dir)
 
-        layout.addWidget(QPushButton("고급 설정"))
+        self.quit_btn = QPushButton("종료")
+        self.quit_btn.clicked.connect(self.close)
 
-        tab.setLayout(layout)
-        return tab
-
-    def detection_tab_ui(self):
-        tab = QWidget()
         layout = QVBoxLayout()
-
-        self.status_label = QLabel("감지 상태: 대기 중")
         layout.addWidget(self.status_label)
+        layout.addWidget(self.detect_btn)
+        layout.addWidget(self.auto_exit_check)
+        layout.addWidget(self.roi_check)
+        layout.addWidget(self.view_log_btn)
+        layout.addWidget(self.quit_btn)
+        self.detect_tab.setLayout(layout)
 
-        btn_layout = QHBoxLayout()
-        btn_layout.addWidget(QPushButton("감지 시작"))
-        btn_layout.addWidget(QPushButton("감지 종료"))
-        layout.addLayout(btn_layout)
+    def init_alert_tab(self):
+        self.volume_label = QLabel("음량 (0.0~1.0):")
+        self.volume_input = QLineEdit(str(self.alert_config.get("volume", 0.8)))
 
-        self.auto_shutdown_cb = QCheckBox("감지 종료 후 프로그램 종료")
-        layout.addWidget(self.auto_shutdown_cb)
+        self.duration_label = QLabel("지속 시간 (초):")
+        self.duration_input = QLineEdit(str(self.alert_config.get("duration", 2)))
 
-        self.auto_start_cb = QCheckBox("프로그램 실행 시 감지 자동 시작")
-        layout.addWidget(self.auto_start_cb)
+        self.sound_list = QListWidget()
+        self.sound_list.addItems(get_sound_list())
+        default_sound = self.alert_config.get("sound")
+        if default_sound:
+            items = self.sound_list.findItems(default_sound, Qt.MatchExactly)
+            if items:
+                self.sound_list.setCurrentItem(items[0])
 
-        layout.addWidget(QPushButton("고급 설정"))
+        self.play_sound_btn = QPushButton("선택한 소리 재생")
+        self.play_sound_btn.clicked.connect(self.preview_sound)
 
-        tab.setLayout(layout)
-        return tab
-
-    def alert_tab_ui(self):
-        tab = QWidget()
         layout = QVBoxLayout()
-
-        self.use_sound_cb = QCheckBox("소리 알림 사용")
-        layout.addWidget(self.use_sound_cb)
-        layout.addWidget(QLabel("음량 설정"))
-        self.volume_slider = QSlider(Qt.Horizontal)
-        self.volume_slider.setMinimum(0)
-        self.volume_slider.setMaximum(100)
-        layout.addWidget(self.volume_slider)
-
-        layout.addWidget(QLabel("지속시간 (초)"))
-        self.duration_input = QLineEdit("3")
+        layout.addWidget(self.volume_label)
+        layout.addWidget(self.volume_input)
+        layout.addWidget(self.duration_label)
         layout.addWidget(self.duration_input)
+        layout.addWidget(QLabel("사용 가능한 알림음:"))
+        layout.addWidget(self.sound_list)
+        layout.addWidget(self.play_sound_btn)
+        self.alert_tab.setLayout(layout)
 
-        layout.addWidget(QPushButton("알림음 선택"))
+    def init_system_tab(self):
+        self.fps_label = QLabel("감지 FPS:")
+        self.fps_spin = QSpinBox()
+        self.fps_spin.setRange(1, 60)
+        self.fps_spin.setValue(8)
 
-        self.use_popup_cb = QCheckBox("팝업 알림 사용")
-        layout.addWidget(self.use_popup_cb)
-        layout.addWidget(QPushButton("고급 팝업 설정"))
+        self.model_label = QLabel("모델 선택:")
+        self.model_combo = QComboBox()
+        self.model_combo.addItems(get_model_list())
 
-        tab.setLayout(layout)
-        return tab
-
-    def system_tab_ui(self):
-        tab = QWidget()
         layout = QVBoxLayout()
+        layout.addWidget(self.fps_label)
+        layout.addWidget(self.fps_spin)
+        layout.addWidget(self.model_label)
+        layout.addWidget(self.model_combo)
+        self.system_tab.setLayout(layout)
 
-        self.obs_cb = QCheckBox("OBS 자동 실행")
-        layout.addWidget(self.obs_cb)
-        layout.addWidget(QPushButton("설정 백업"))
-        layout.addWidget(QPushButton("설정 복원"))
-        layout.addWidget(QPushButton("시스템 상태 보기"))
+    def toggle_detection(self):
+        if not self.running:
+            roi = load_roi()
+            if roi is None:
+                QMessageBox.warning(self, "오류", "ROI 영역이 설정되지 않았습니다.")
+                return
 
-        tab.setLayout(layout)
-        return tab
+            try:
+                volume = float(self.volume_input.text())
+                duration = float(self.duration_input.text())
+            except ValueError:
+                QMessageBox.warning(self, "입력 오류", "음량과 지속 시간은 숫자여야 합니다.")
+                return
+
+            auto_exit = self.auto_exit_check.isChecked()
+            self.detector_thread = DetectionThread(self.profile_name, volume, duration, auto_exit)
+            self.detector_thread.finished.connect(self.on_detection_finished)
+            self.detector_thread.start()
+            self.detect_btn.setText("차량 감지 중지")
+            self.status_label.setText("상태: 감지 중")
+            self.running = True
+        else:
+            if self.detector_thread:
+                self.detector_thread.stop()
+                self.detector_thread.wait()
+            self.detect_btn.setText("차량 감지 시작")
+            self.status_label.setText("상태: 대기 중")
+            self.running = False
+
+    def on_detection_finished(self):
+        if not self.auto_exit_check.isChecked():
+            self.status_label.setText("상태: 종료됨")
+            self.detect_btn.setText("차량 감지 시작")
+            self.running = False
+
+    def open_log_dir(self):
+        log_dir = os.path.abspath("logs")
+        os.makedirs(log_dir, exist_ok=True)
+        os.startfile(log_dir)
+
+    def preview_sound(self):
+        selected = self.sound_list.currentItem()
+        if selected:
+            sound_name = selected.text()
+            play_alert_sound(sound_name, float(self.volume_input.text()), float(self.duration_input.text()))
+
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

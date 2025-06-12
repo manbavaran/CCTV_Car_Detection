@@ -12,9 +12,9 @@ from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QMessage
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import QTimer
 
-from utils.ROI_IO import load_roi
-from utils.Alert import trigger_alert
-from utils.Logger import log_event
+from utils.roi_io import load_roi
+from utils.alert import trigger_alert
+from utils.logger import log_event
 
 CAR_CLASSES = [2, 3, 5, 7]  # car, motorcycle, bus, truck
 
