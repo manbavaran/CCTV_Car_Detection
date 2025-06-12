@@ -5,11 +5,11 @@ import os
 import time
 import threading
 import onnxruntime as ort
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QMessageBox
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QMessageBox, QApplication
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import QTimer
 
-from roi_io import load_roi
+from roi_io import load_roi, draw_roi
 from logger import log_event
 
 CAR_CLASSES = [2, 3, 5, 7]  # COCO: car, motorcycle, bus, truck
@@ -64,23 +64,39 @@ def nms(boxes, scores, iou_threshold):
         idxs = idxs[1:][iou < iou_threshold]
     return indices
 
-def scale_roi(roi, src_shape, disp_shape):
+def scale_points(points, src_shape, dst_shape):
     src_h, src_w = src_shape
-    disp_h, disp_w = disp_shape
-    scale_x = disp_w / src_w
-    scale_y = disp_h / src_h
-    return [(int(x * scale_x), int(y * scale_y)) for (x, y) in roi]
-
-def draw_roi(frame, roi_points, color=(0,255,0), thickness=2):
-    pts = np.array(roi_points, dtype=np.int32)
-    cv2.polylines(frame, [pts], isClosed=True, color=color, thickness=thickness)
-    return frame
+    dst_h, dst_w = dst_shape
+    scale_x = dst_w / src_w
+    scale_y = dst_h / src_h
+    return [(int(x * scale_x), int(y * scale_y)) for (x, y) in points]
 
 class VehicleDetector(QWidget):
     def __init__(self, volume=0.8, duration=2, total_time=5, cooldown=6, fps=5):
         super().__init__()
+        app = QApplication.instance() or QApplication(sys.argv)
+        screen = app.primaryScreen()
+        size = screen.size()
+        self.display_w, self.display_h = size.width(), size.height()
         self.setWindowTitle("차량 감지 시스템")
-        self.setGeometry(100, 100, 1280, 720)  # 원하는 크기로 변경 가능
+        self.showMaximized()
+
+        self.cap = cv2.VideoCapture(0)
+        if not self.cap.isOpened():
+            QMessageBox.critical(self, "카메라 오류", "가상카메라를 열 수 없습니다.")
+            self.close()
+            return
+        ret, frame = self.cap.read()
+        if not ret:
+            QMessageBox.critical(self, "카메라 오류", "초기 프레임을 읽을 수 없습니다.")
+            self.close()
+            return
+        self.orig_h, self.orig_w = frame.shape[:2]
+        self.image_label = QLabel()
+        self.image_label.setFixedSize(self.display_w, self.display_h)
+        layout = QVBoxLayout()
+        layout.addWidget(self.image_label)
+        self.setLayout(layout)
 
         self.volume = volume
         self.duration = duration
@@ -89,7 +105,6 @@ class VehicleDetector(QWidget):
         self.fps = fps
         self.last_alert_time = 0
 
-        # 모델 로드
         try:
             base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             onnx_path = os.path.join(base_dir, "src", "models", "yolov5n.onnx")
@@ -99,27 +114,12 @@ class VehicleDetector(QWidget):
             self.close()
             return
 
-        # ROI 정보
         self.roi = load_roi()
         if self.roi is None or len(self.roi) != 4:
             QMessageBox.critical(self, "오류", "ROI 정보가 올바르지 않습니다. ROI 설정 후 감지를 시작하세요.")
             self.close()
             return
 
-        # 카메라 연결
-        self.cap = cv2.VideoCapture(0)
-        if not self.cap.isOpened():
-            QMessageBox.critical(self, "카메라 오류", "가상카메라를 열 수 없습니다.")
-            self.close()
-            return
-
-        # 이미지 출력용 라벨
-        self.image_label = QLabel()
-        layout = QVBoxLayout()
-        layout.addWidget(self.image_label)
-        self.setLayout(layout)
-
-        # 타이머 시작
         self.timer = QTimer()
         self.timer.timeout.connect(self.process_frame)
         self.timer.start(int(1000 / self.fps))
@@ -131,7 +131,6 @@ class VehicleDetector(QWidget):
         if not ret:
             return
 
-        orig = frame.copy()
         img_input = preprocess(frame, img_size=640)
         outputs = self.ort_session.run(None, {"images": img_input})
 
@@ -139,7 +138,6 @@ class VehicleDetector(QWidget):
         boxes, scores, classes = [], [], []
         conf_thres = 0.4
         iou_thres = 0.45
-        img_h, img_w = frame.shape[:2]
 
         for det in pred:
             obj_conf = det[4]
@@ -149,11 +147,12 @@ class VehicleDetector(QWidget):
             if conf > conf_thres and class_id in CAR_CLASSES:
                 x, y, w, h = det[0:4]
                 box = xywh2xyxy(x, y, w, h)
+                # 감지 박스를 "원본 해상도"로 변환
                 box = [
-                    int(box[0] / 640 * img_w),
-                    int(box[1] / 640 * img_h),
-                    int(box[2] / 640 * img_w),
-                    int(box[3] / 640 * img_h)
+                    int(box[0] / 640 * self.orig_w),
+                    int(box[1] / 640 * self.orig_h),
+                    int(box[2] / 640 * self.orig_w),
+                    int(box[3] / 640 * self.orig_h)
                 ]
                 boxes.append(box)
                 scores.append(float(conf))
@@ -168,16 +167,16 @@ class VehicleDetector(QWidget):
             cy = int((box[1] + box[3]) / 2)
             if self.is_inside_roi((cx, cy)):
                 count += 1
-                cv2.rectangle(orig, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
+                cv2.rectangle(frame, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
 
-        # ---- ROI 박스 표시 (창 크기에 맞게 스케일링) ----
-        disp_w, disp_h = self.image_label.width() or 1280, self.image_label.height() or 720
-        img_rgb = cv2.cvtColor(orig, cv2.COLOR_BGR2RGB)
-        h, w, ch = img_rgb.shape
-        scaled_roi = scale_roi(self.roi, (h, w), (disp_h, disp_w))
-        disp_img = cv2.resize(img_rgb, (disp_w, disp_h))
+        # ROI와 감지박스 좌표를 표시 해상도에 맞게 확대
+        disp_img = cv2.resize(frame, (self.display_w, self.display_h))
+        scaled_roi = scale_points(self.roi, (self.orig_h, self.orig_w), (self.display_h, self.display_w))
         disp_img = draw_roi(disp_img, scaled_roi, color=(0,255,0), thickness=2)
-        qimg = QImage(disp_img.data, disp_w, disp_h, ch * disp_w, QImage.Format_RGB888)
+        # QImage 변환해서 출력
+        rgb = cv2.cvtColor(disp_img, cv2.COLOR_BGR2RGB)
+        ch = rgb.shape[2]
+        qimg = QImage(rgb.data, self.display_w, self.display_h, ch * self.display_w, QImage.Format_RGB888)
         self.image_label.setPixmap(QPixmap.fromImage(qimg))
 
         now = time.time()
