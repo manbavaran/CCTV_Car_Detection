@@ -16,7 +16,7 @@ class VideoWindow(QWidget):
         layout.addWidget(self.label)
         self.setLayout(layout)
 
-        self.cap = cv2.VideoCapture(1)
+        self.cap = cv2.VideoCapture(0)
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_frame)

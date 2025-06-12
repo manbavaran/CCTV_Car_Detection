@@ -23,8 +23,8 @@ class ROIDrawer(QWidget):
         self.setMouseTracking(True)
 
     def capture_frame(self):
-        # OBS/가상카메라 캡처 (번호 1)
-        cap = cv2.VideoCapture(1)
+        # OBS/가상카메라 캡처 (번호 0)
+        cap = cv2.VideoCapture(0)
         ret, frame = cap.read()
         cap.release()
         if ret:
