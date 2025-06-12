@@ -89,7 +89,7 @@ class VehicleDetector(QWidget):
         # 모델 로드 (ONNX)
         try:
             base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            onnx_path = os.path.join(base_dir, "models", "yolov5n.onnx")
+            onnx_path = os.path.join(base_dir, "src", "models", "yolov5n.onnx")
             self.ort_session = ort.InferenceSession(onnx_path, providers=['CPUExecutionProvider'])
         except Exception as e:
             QMessageBox.critical(self, "모델 로드 실패", f"ONNX 모델 로드 중 오류:\n{str(e)}")
