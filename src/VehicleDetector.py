@@ -16,7 +16,8 @@ CAR_CLASSES = [2, 3, 5, 7]  # COCO: car, motorcycle, bus, truck
 
 def play_alert_sound(volume=0.8, duration=2, total_time=5):
     import pygame
-    sound_path = os.path.join(os.path.dirname(__file__), "resources", "sounds", "Car_Alarm.mp3")
+    base_dir = os.getcwd()
+    sound_path = os.path.join(base_dir, "resources", "sounds", "Car_Alarm.mp3")
     try:
         pygame.mixer.init()
         repeat = int(total_time / duration + 0.5)

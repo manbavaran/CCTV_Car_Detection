@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 
 # 로그 디렉토리 및 파일 지정 (루트 기준 logs/)
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.getcwd()
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 

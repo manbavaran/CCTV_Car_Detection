@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 
 # 프로젝트 루트 기준 절대경로 계산
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.getcwd()
 ROI_DIR = os.path.join(BASE_DIR, "profiles")
 ROI_PATH = os.path.join(ROI_DIR, "roi_points.pkl")
 LOG_DIR = os.path.join(BASE_DIR, "logs", "roi")
@@ -26,6 +26,10 @@ def load_roi():
 
 def log_roi_save():
     """ROI 저장 로그를 기록"""
+    base_dir = os.getcwd()
+    LOG_DIR = os.path.join(base_dir, "logs", "roi")
+    ROI_PATH = os.path.join(base_dir, "profiles", "roi_points.pkl")
+
     os.makedirs(LOG_DIR, exist_ok=True)
     now = datetime.now()
     log_file = os.path.join(LOG_DIR, f"{now:%Y-%m-%d}.log")
