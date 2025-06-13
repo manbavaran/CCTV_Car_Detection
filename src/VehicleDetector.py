@@ -115,7 +115,7 @@ class VehicleDetector(QWidget):
 
         # ONNX 모델 로드
         try:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
+            base_dir = os.getcwd()
             onnx_path = os.path.join(base_dir, "models", "yolov5n.onnx")
             self.ort_session = ort.InferenceSession(onnx_path, providers=['CPUExecutionProvider'])
         except Exception as e:
