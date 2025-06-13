@@ -1,9 +1,9 @@
 import sys
-import cv2
-import numpy as np
 import os
+import cv2
 import time
 import threading
+import numpy as np
 import onnxruntime as ort
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QMessageBox
 from PyQt5.QtGui import QImage, QPixmap
@@ -16,7 +16,7 @@ CAR_CLASSES = [2, 3, 5, 7]  # COCO: car, motorcycle, bus, truck
 
 def play_alert_sound(volume=0.8, duration=2, total_time=5):
     import pygame
-    sound_path = os.path.join(os.path.dirname(__file__), "..", "resources", "sounds", "Car_Alarm.mp3")
+    sound_path = os.path.join(os.path.dirname(__file__), "resources", "sounds", "Car_Alarm.mp3")
     try:
         pygame.mixer.init()
         repeat = int(total_time / duration + 0.5)
@@ -50,6 +50,8 @@ def nms(boxes, scores, iou_threshold):
     while len(idxs) > 0:
         i = idxs[0]
         indices.append(i)
+        if len(idxs) == 1:
+            break
         xx1 = np.maximum(boxes[i, 0], boxes[idxs[1:], 0])
         yy1 = np.maximum(boxes[i, 1], boxes[idxs[1:], 1])
         xx2 = np.minimum(boxes[i, 2], boxes[idxs[1:], 2])
@@ -64,24 +66,53 @@ def nms(boxes, scores, iou_threshold):
         idxs = idxs[1:][iou < iou_threshold]
     return indices
 
-def scale_roi(roi, src_shape, disp_shape):
-    src_h, src_w = src_shape
-    disp_h, disp_w = disp_shape
-    scale_x = disp_w / src_w
-    scale_y = disp_h / src_h
-    return [(int(x * scale_x), int(y * scale_y)) for (x, y) in roi]
-
 def draw_roi(frame, roi_points, color=(0,255,0), thickness=2):
-    pts = np.array(roi_points, dtype=np.int32)
-    cv2.polylines(frame, [pts], isClosed=True, color=color, thickness=thickness)
+    if roi_points and len(roi_points) == 4:
+        pts = np.array(roi_points, dtype=np.int32)
+        cv2.polylines(frame, [pts], isClosed=True, color=color, thickness=thickness)
     return frame
 
 class VehicleDetector(QWidget):
     def __init__(self, volume=0.8, duration=2, total_time=5, cooldown=6, fps=5):
         super().__init__()
         self.setWindowTitle("차량 감지 시스템")
-        self.setGeometry(100, 100, 1280, 720)  # 원하는 크기로 변경 가능
 
+        # 카메라 초기화 및 해상도 감지
+        self.cap = cv2.VideoCapture(0)
+        if not self.cap.isOpened():
+            QMessageBox.critical(self, "카메라 오류", "카메라를 열 수 없습니다.")
+            self.close()
+            return
+        ret, frame = self.cap.read()
+        if not ret:
+            QMessageBox.critical(self, "카메라 오류", "카메라 프레임을 읽을 수 없습니다.")
+            self.cap.release()
+            self.close()
+            return
+        self.orig_h, self.orig_w = frame.shape[:2]
+        self.setGeometry(100, 100, self.orig_w, self.orig_h)
+        self.setFixedSize(self.orig_w, self.orig_h)
+
+        # ROI 정보 불러오기
+        self.roi = load_roi()
+        if self.roi is None or len(self.roi) != 4:
+            QMessageBox.critical(self, "오류", "ROI 정보가 올바르지 않습니다. ROI 설정 후 감지를 시작하세요.")
+            self.cap.release()
+            self.close()
+            return
+
+        # ONNX 모델 로드
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            onnx_path = os.path.join(base_dir, "models", "yolov5n.onnx")
+            self.ort_session = ort.InferenceSession(onnx_path, providers=['CPUExecutionProvider'])
+        except Exception as e:
+            QMessageBox.critical(self, "모델 로드 실패", f"ONNX 모델 로드 중 오류:\n{str(e)}")
+            self.cap.release()
+            self.close()
+            return
+
+        # 알림/감지 변수
         self.volume = volume
         self.duration = duration
         self.total_time = total_time
@@ -89,37 +120,14 @@ class VehicleDetector(QWidget):
         self.fps = fps
         self.last_alert_time = 0
 
-        # 모델 로드
-        try:
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            onnx_path = os.path.join(base_dir, "src", "models", "yolov5n.onnx")
-            self.ort_session = ort.InferenceSession(onnx_path, providers=['CPUExecutionProvider'])
-        except Exception as e:
-            QMessageBox.critical(self, "모델 로드 실패", f"ONNX 모델 로드 중 오류:\n{str(e)}")
-            self.close()
-            return
-
-        # ROI 정보
-        self.roi = load_roi()
-        if self.roi is None or len(self.roi) != 4:
-            QMessageBox.critical(self, "오류", "ROI 정보가 올바르지 않습니다. ROI 설정 후 감지를 시작하세요.")
-            self.close()
-            return
-
-        # 카메라 연결
-        self.cap = cv2.VideoCapture(0)
-        if not self.cap.isOpened():
-            QMessageBox.critical(self, "카메라 오류", "가상카메라를 열 수 없습니다.")
-            self.close()
-            return
-
-        # 이미지 출력용 라벨
-        self.image_label = QLabel()
+        # 이미지 출력 라벨
+        self.image_label = QLabel(self)
+        self.image_label.setFixedSize(self.orig_w, self.orig_h)
         layout = QVBoxLayout()
         layout.addWidget(self.image_label)
         self.setLayout(layout)
 
-        # 타이머 시작
+        # 타이머
         self.timer = QTimer()
         self.timer.timeout.connect(self.process_frame)
         self.timer.start(int(1000 / self.fps))
@@ -170,14 +178,12 @@ class VehicleDetector(QWidget):
                 count += 1
                 cv2.rectangle(orig, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
 
-        # ---- ROI 박스 표시 (창 크기에 맞게 스케일링) ----
-        disp_w, disp_h = self.image_label.width() or 1280, self.image_label.height() or 720
+        # ROI (스케일 변환 없이, 원본 해상도 그대로)
+        draw_roi(orig, self.roi, color=(0,255,0), thickness=2)
+
+        # 프레임을 PyQt 라벨에 표시
         img_rgb = cv2.cvtColor(orig, cv2.COLOR_BGR2RGB)
-        h, w, ch = img_rgb.shape
-        scaled_roi = scale_roi(self.roi, (h, w), (disp_h, disp_w))
-        disp_img = cv2.resize(img_rgb, (disp_w, disp_h))
-        disp_img = draw_roi(disp_img, scaled_roi, color=(0,255,0), thickness=2)
-        qimg = QImage(disp_img.data, disp_w, disp_h, ch * disp_w, QImage.Format_RGB888)
+        qimg = QImage(img_rgb.data, self.orig_w, self.orig_h, 3 * self.orig_w, QImage.Format_RGB888)
         self.image_label.setPixmap(QPixmap.fromImage(qimg))
 
         now = time.time()
@@ -197,3 +203,10 @@ class VehicleDetector(QWidget):
         self.cap.release()
         log_event("INFO", "차량 감지 종료")
         event.accept()
+
+if __name__ == "__main__":
+    from PyQt5.QtWidgets import QApplication
+    app = QApplication(sys.argv)
+    win = VehicleDetector()
+    win.show()
+    sys.exit(app.exec_())
