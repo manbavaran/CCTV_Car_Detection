@@ -7,14 +7,14 @@ import numpy as np
 import onnxruntime as ort
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QMessageBox, QApplication
 from PyQt5.QtGui import QImage, QPixmap
-from PyQt5.QtCore import QTimer
+from PyQt5.QtCore import QTimer, Qt
 
 from roi_io import load_roi
 from logger import log_event
 
 CAR_CLASSES = [2, 3, 5, 7]  # COCO: car, motorcycle, bus, truck
 
-def play_alert_sound(volume=0.8, duration=2, total_time=5):
+def play_alert_sound(volume=1.0, duration=2, total_time=5):
     import pygame
     base_dir = os.getcwd()
     sound_path = os.path.join(base_dir, "resources", "sounds", "Car_Alarm.mp3")
@@ -88,7 +88,7 @@ def scale_box(box, src_size, dst_size):
     return [x1, y1, x2, y2]
 
 class VehicleDetector(QWidget):
-    def __init__(self, volume=0.8, duration=2, total_time=5, cooldown=6, fps=5):
+    def __init__(self, volume=1.0, duration=2, total_time=5, cooldown=15, fps=5):
         super().__init__()
         self.setWindowTitle("차량 감지 시스템")
 
@@ -132,6 +132,7 @@ class VehicleDetector(QWidget):
         self.cooldown = cooldown
         self.fps = fps
         self.last_alert_time = 0
+        self.is_alerting = False  # 알람 재생 상태 플래그
 
         # 이미지 출력 라벨 (최대화시 창 크기에 맞게 자동 리사이즈)
         self.image_label = QLabel(self)
@@ -212,14 +213,17 @@ class VehicleDetector(QWidget):
         self.image_label.setPixmap(QPixmap.fromImage(qimg))
 
         now = time.time()
-        if count > 0 and now - self.last_alert_time > self.cooldown:
-            threading.Thread(
-                target=play_alert_sound,
-                args=(self.volume, self.duration, self.total_time),
-                daemon=True
-            ).start()
-            log_event("ALERT", "차량 감지 알림 발생")
+        # 알람 재생 중이 아니고, 쿨타임이 지났을 때만 알람 재생
+        if count > 0 and (now - self.last_alert_time > self.cooldown) and not self.is_alerting:
+            self.is_alerting = True
             self.last_alert_time = now
+
+            def finish_alert():
+                play_alert_sound(self.volume, self.duration, self.total_time)
+                self.is_alerting = False
+
+            threading.Thread(target=finish_alert, daemon=True).start()
+            log_event("ALERT", "차량 감지 알림 발생")
 
     def is_inside_roi(self, point):
         # point는 원본 해상도 기준이어야 함
@@ -229,6 +233,11 @@ class VehicleDetector(QWidget):
         self.cap.release()
         log_event("INFO", "차량 감지 종료")
         event.accept()
+
+    def keyPressEvent(self, event):
+        # ESC 또는 Q 키로 창 닫기
+        if event.key() == Qt.Key_Escape or event.key() == Qt.Key_Q:
+            self.close()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
