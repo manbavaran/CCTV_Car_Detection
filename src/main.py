@@ -4,7 +4,7 @@ import subprocess
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QMessageBox
 
 from VehicleDetector import VehicleDetector
-from VirtualCamSender import VirtualCamSender
+from VirtualCamSender import VideoWindow
 
 class MainWindow(QWidget):
     def __init__(self):
@@ -49,7 +49,7 @@ class MainWindow(QWidget):
 
     def open_preview(self):
         if self.preview_window is None:
-            self.preview_window = VirtualCamSender()
+            self.preview_window = VideoWindow()
             self.preview_window.show()
         else:
             QMessageBox.information(self, "알림", "이미 미리보기가 열려 있습니다.")
