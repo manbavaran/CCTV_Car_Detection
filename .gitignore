@@ -2,6 +2,13 @@ img/
 
 src/models/
 
+src/__pycache__
+
 venv/
 
 yolov5/
+
+logs/
+
+profiles/
+

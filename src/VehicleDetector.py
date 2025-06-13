@@ -5,7 +5,7 @@ import time
 import threading
 import numpy as np
 import onnxruntime as ort
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QMessageBox
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QMessageBox, QApplication
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import QTimer
 
@@ -66,11 +66,25 @@ def nms(boxes, scores, iou_threshold):
         idxs = idxs[1:][iou < iou_threshold]
     return indices
 
-def draw_roi(frame, roi_points, color=(0,255,0), thickness=2):
-    if roi_points and len(roi_points) == 4:
-        pts = np.array(roi_points, dtype=np.int32)
-        cv2.polylines(frame, [pts], isClosed=True, color=color, thickness=thickness)
-    return frame
+def scale_points(points, src_size, dst_size):
+    """원본 해상도의 점 리스트를, 표시창 해상도에 맞게 스케일 변환."""
+    src_w, src_h = src_size
+    dst_w, dst_h = dst_size
+    scale_x = dst_w / src_w
+    scale_y = dst_h / src_h
+    return [(int(x * scale_x), int(y * scale_y)) for (x, y) in points]
+
+def scale_box(box, src_size, dst_size):
+    """원본 해상도의 박스([x1, y1, x2, y2])를, 표시창 해상도에 맞게 변환."""
+    src_w, src_h = src_size
+    dst_w, dst_h = dst_size
+    scale_x = dst_w / src_w
+    scale_y = dst_h / src_h
+    x1 = int(box[0] * scale_x)
+    y1 = int(box[1] * scale_y)
+    x2 = int(box[2] * scale_x)
+    y2 = int(box[3] * scale_y)
+    return [x1, y1, x2, y2]
 
 class VehicleDetector(QWidget):
     def __init__(self, volume=0.8, duration=2, total_time=5, cooldown=6, fps=5):
@@ -90,8 +104,6 @@ class VehicleDetector(QWidget):
             self.close()
             return
         self.orig_h, self.orig_w = frame.shape[:2]
-        self.setGeometry(100, 100, self.orig_w, self.orig_h)
-        self.setFixedSize(self.orig_w, self.orig_h)
 
         # ROI 정보 불러오기
         self.roi = load_roi()
@@ -120,12 +132,14 @@ class VehicleDetector(QWidget):
         self.fps = fps
         self.last_alert_time = 0
 
-        # 이미지 출력 라벨
+        # 이미지 출력 라벨 (최대화시 창 크기에 맞게 자동 리사이즈)
         self.image_label = QLabel(self)
-        self.image_label.setFixedSize(self.orig_w, self.orig_h)
+        self.image_label.setScaledContents(True)  # 자동 리사이즈
         layout = QVBoxLayout()
         layout.addWidget(self.image_label)
         self.setLayout(layout)
+
+        self.showMaximized()  # 창 최대화
 
         # 타이머
         self.timer = QTimer()
@@ -176,14 +190,24 @@ class VehicleDetector(QWidget):
             cy = int((box[1] + box[3]) / 2)
             if self.is_inside_roi((cx, cy)):
                 count += 1
+                # 박스는 창 크기에 맞게 스케일
+                scaled_box = scale_box(box, (self.orig_w, self.orig_h),
+                                            (self.image_label.width(), self.image_label.height()))
                 cv2.rectangle(orig, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
 
-        # ROI (스케일 변환 없이, 원본 해상도 그대로)
-        draw_roi(orig, self.roi, color=(0,255,0), thickness=2)
+        # 라벨 크기에 맞춰 프레임 리사이즈
+        label_w = self.image_label.width()
+        label_h = self.image_label.height()
+        disp_img = cv2.resize(orig, (label_w, label_h), interpolation=cv2.INTER_AREA)
 
-        # 프레임을 PyQt 라벨에 표시
-        img_rgb = cv2.cvtColor(orig, cv2.COLOR_BGR2RGB)
-        qimg = QImage(img_rgb.data, self.orig_w, self.orig_h, 3 * self.orig_w, QImage.Format_RGB888)
+        # ROI(네 점)도 라벨 크기에 맞게 변환해서 그림
+        scaled_roi = scale_points(self.roi, (self.orig_w, self.orig_h), (label_w, label_h))
+        if scaled_roi and len(scaled_roi) == 4:
+            pts = np.array(scaled_roi, dtype=np.int32)
+            cv2.polylines(disp_img, [pts], isClosed=True, color=(0,255,0), thickness=2)
+
+        img_rgb = cv2.cvtColor(disp_img, cv2.COLOR_BGR2RGB)
+        qimg = QImage(img_rgb.data, label_w, label_h, 3 * label_w, QImage.Format_RGB888)
         self.image_label.setPixmap(QPixmap.fromImage(qimg))
 
         now = time.time()
@@ -197,6 +221,7 @@ class VehicleDetector(QWidget):
             self.last_alert_time = now
 
     def is_inside_roi(self, point):
+        # point는 원본 해상도 기준이어야 함
         return cv2.pointPolygonTest(np.array(self.roi, dtype=np.int32), point, False) >= 0
 
     def closeEvent(self, event):
@@ -205,7 +230,6 @@ class VehicleDetector(QWidget):
         event.accept()
 
 if __name__ == "__main__":
-    from PyQt5.QtWidgets import QApplication
     app = QApplication(sys.argv)
     win = VehicleDetector()
     win.show()
