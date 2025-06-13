@@ -11,15 +11,15 @@ from roi_io import save_roi
 class ROIDrawer(QWidget):
     def __init__(self):
         super().__init__()
-        # 최대 해상도
+        # 화면 최대화
         self.app = QApplication.instance() or QApplication(sys.argv)
         screen = self.app.primaryScreen()
         size = screen.size()
         self.display_w, self.display_h = size.width(), size.height()
-        # 실제 카메라(가상카메라) 프레임
+        # 실제(가상) 카메라 프레임
         self.frame = self.capture_frame()
         self.orig_h, self.orig_w = self.frame.shape[:2]
-        # 원본 프레임 -> 최대화 화면 크기로 리사이즈
+        # 최대화 화면에 맞춰 리사이즈(표시용)
         self.display_img = cv2.resize(self.frame, (self.display_w, self.display_h))
         self.qimage = QImage(
             cv2.cvtColor(self.display_img, cv2.COLOR_BGR2RGB).data,

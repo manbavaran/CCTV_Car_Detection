@@ -1,36 +1,64 @@
 import os
 import pickle
-from datetime import datetime
-import cv2
-import numpy as np
+import datetime
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# ============================
+# [경로 설정 안내]
+# 1. py 파일이 src/ 폴더에 있을 때:
+#    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#
+# 2. py 파일이 프로젝트 최상위에 있을 때(= exe와 같은 위치):
+#    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# ============================
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ← src/ 폴더 기준
 ROI_DIR = os.path.join(BASE_DIR, "profiles")
-ROI_PATH = os.path.join(ROI_DIR, "roi_points.pkl")
 LOG_DIR = os.path.join(BASE_DIR, "logs", "roi")
 
-def save_roi(points):
+def ensure_dirs():
     os.makedirs(ROI_DIR, exist_ok=True)
-    with open(ROI_PATH, "wb") as f:
-        pickle.dump(points, f)
-    log_roi_save()
-
-def load_roi():
-    if os.path.exists(ROI_PATH):
-        with open(ROI_PATH, "rb") as f:
-            return pickle.load(f)
-    return None
-
-def log_roi_save():
     os.makedirs(LOG_DIR, exist_ok=True)
-    now = datetime.now()
-    log_file = os.path.join(LOG_DIR, f"{now:%Y-%m-%d}.log")
-    timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
-    with open(log_file, "a", encoding="utf-8") as f:
-        f.write(f"[{timestamp}] ROI 저장: {os.path.abspath(ROI_PATH)}\n")
 
-def draw_roi(frame, roi_points, show=True, color=(0, 255, 0), thickness=2):
-    if show and roi_points is not None and len(roi_points) == 4:
-        roi_pts = np.array(roi_points, dtype=np.int32).reshape(-1, 1, 2)
-        cv2.polylines(frame, [roi_pts], isClosed=True, color=color, thickness=thickness, lineType=cv2.LINE_AA)
-    return frame
+def save_roi(points, filename="roi_points.pkl"):
+    """
+    ROI 좌표(point list)를 저장합니다.
+    """
+    ensure_dirs()
+    path = os.path.join(ROI_DIR, filename)
+    with open(path, "wb") as f:
+        pickle.dump(points, f)
+
+    # 로그도 함께 남김 (시간, 좌표 기록)
+    log_msg = f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ROI 저장: {points}\n"
+    log_path = os.path.join(LOG_DIR, "roi_save.log")
+    with open(log_path, "a", encoding="utf-8") as logf:
+        logf.write(log_msg)
+
+def load_roi(filename="roi_points.pkl"):
+    """
+    ROI 좌표(point list)를 불러옵니다.
+    """
+    path = os.path.join(ROI_DIR, filename)
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        points = pickle.load(f)
+    return points
+
+def log_event(event: str):
+    """
+    기타 roi 관련 이벤트를 로그로 남깁니다.
+    """
+    ensure_dirs()
+    log_path = os.path.join(LOG_DIR, "roi_events.log")
+    log_msg = f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {event}\n"
+    with open(log_path, "a", encoding="utf-8") as logf:
+        logf.write(log_msg)
+
+# 테스트용
+if __name__ == '__main__':
+    example_points = [(10, 20), (100, 200), (300, 400), (400, 100)]
+    save_roi(example_points)
+    loaded = load_roi()
+    print("저장한 ROI:", loaded)
+    log_event("테스트 이벤트")
