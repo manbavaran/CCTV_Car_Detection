@@ -1,86 +1,76 @@
 import sys
 import os
 import subprocess
-from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QMessageBox
+from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QMessageBox
+
 from VehicleDetector import VehicleDetector
-from VirtualCamSender import VideoWindow
+from VirtualCamSender import VirtualCamSender
 
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("CCTV 차량 감지 시스템")
-        self.setGeometry(300, 200, 400, 250)
+        self.setWindowTitle("차량 감지 시스템")
+        self.setGeometry(100, 100, 600, 400)
 
-        # 버튼 및 라벨
-        self.status_label = QLabel("상태: 대기 중")
-        self.btn_start = QPushButton("감지 시작")
-        self.btn_stop = QPushButton("감지 중지")
-        self.btn_roi = QPushButton("ROI 설정")
-        self.btn_preview = QPushButton("입력 영상 미리보기")
-        self.btn_exit = QPushButton("종료")
+        self.detect_btn = QPushButton("감지 시작", self)
+        self.stop_btn = QPushButton("감지 중지", self)
+        self.roi_btn = QPushButton("ROI 설정", self)
+        self.preview_btn = QPushButton("미리보기", self)
+        self.close_btn = QPushButton("종료", self)
 
-        self.btn_stop.setEnabled(False)
+        self.detect_btn.clicked.connect(self.start_detection)
+        self.stop_btn.clicked.connect(self.stop_detection)
+        self.roi_btn.clicked.connect(self.open_roi_setter)
+        self.preview_btn.clicked.connect(self.open_preview)
+        self.close_btn.clicked.connect(self.close)
 
-        # 레이아웃
         layout = QVBoxLayout()
-        layout.addWidget(self.status_label)
-        layout.addWidget(self.btn_start)
-        layout.addWidget(self.btn_stop)
-        layout.addWidget(self.btn_roi)
-        layout.addWidget(self.btn_preview)
-        layout.addWidget(self.btn_exit)
+        layout.addWidget(self.detect_btn)
+        layout.addWidget(self.stop_btn)
+        layout.addWidget(self.roi_btn)
+        layout.addWidget(self.preview_btn)
+        layout.addWidget(self.close_btn)
         self.setLayout(layout)
 
-        # 연결
-        self.btn_start.clicked.connect(self.start_detection)
-        self.btn_stop.clicked.connect(self.stop_detection)
-        self.btn_roi.clicked.connect(self.open_roi_setting)
-        self.btn_preview.clicked.connect(self.open_preview)
-        self.btn_exit.clicked.connect(self.close)
-
-        self.detector = None
+        self.detector_window = None
         self.preview_window = None
 
     def start_detection(self):
-        if self.detector is None:
-            self.detector = VehicleDetector()
-            self.detector.show()
-            self.status_label.setText("상태: 감지 중")
-            self.btn_start.setEnabled(False)
-            self.btn_stop.setEnabled(True)
+        if self.detector_window is None:
+            self.detector_window = VehicleDetector()
+            self.detector_window.show()
         else:
             QMessageBox.information(self, "알림", "이미 감지 중입니다.")
 
     def stop_detection(self):
-        if self.detector is not None:
-            self.detector.close()
-            self.detector = None
-            self.status_label.setText("상태: 대기 중")
-            self.btn_start.setEnabled(True)
-            self.btn_stop.setEnabled(False)
-
-    def open_roi_setting(self):
-        # ROI_Four_Dots.py를 별도의 콘솔로 띄움
-        script_path = os.path.join(os.path.dirname(__file__), 'ROI_Four_Dots.py')
-        subprocess.Popen(
-            [sys.executable, script_path],
-            creationflags=subprocess.CREATE_NEW_CONSOLE
-        )
+        if self.detector_window is not None:
+            self.detector_window.close()
+            self.detector_window = None
 
     def open_preview(self):
         if self.preview_window is None:
-            self.preview_window = VideoWindow()
+            self.preview_window = VirtualCamSender()
             self.preview_window.show()
-            self.preview_window.destroyed.connect(self.on_preview_closed)
         else:
-            self.preview_window.activateWindow()
+            QMessageBox.information(self, "알림", "이미 미리보기가 열려 있습니다.")
 
-    def on_preview_closed(self):
-        self.preview_window = None
+    def open_roi_setter(self):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        if getattr(sys, 'frozen', False):
+            # exe로 실행 중이면 ROI_Four_Dots.exe 실행
+            exe_path = os.path.join(base_dir, "ROI_Four_Dots.exe")
+            if not os.path.exists(exe_path):
+                QMessageBox.critical(self, "오류", f"ROI_Four_Dots.exe가 {exe_path}에 없습니다.\n빌드 후 dist 폴더에 함께 넣어주세요.")
+                return
+            subprocess.Popen([exe_path])
+        else:
+            # py로 실행 중이면 python ROI_Four_Dots.py 실행
+            py_path = os.path.join(base_dir, "ROI_Four_Dots.py")
+            subprocess.Popen([sys.executable, py_path])
 
     def closeEvent(self, event):
-        if self.detector is not None:
-            self.detector.close()
+        if self.detector_window is not None:
+            self.detector_window.close()
         if self.preview_window is not None:
             self.preview_window.close()
         event.accept()
