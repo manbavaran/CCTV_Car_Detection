@@ -41,15 +41,11 @@ class VehicleDetector:
     def detect(self, frame):
         input_tensor = self.preprocess(frame)
         outputs = self.session.run([self.output_name], {self.input_name: input_tensor})[0]
-        # yolov5n onnx 기본 결과 (batch, nboxes, 85)
-        # 85: 4(box), 1(obj conf), 80(class conf)
         boxes, scores, class_ids = self.postprocess(outputs, frame.shape)
         return boxes, scores, class_ids
 
     def postprocess(self, output, orig_shape, conf_thres=0.25, iou_thres=0.45):
-        # [batch, 25200, 85]
         preds = output[0] if isinstance(output, (tuple, list, np.ndarray)) else output
-        # conf: objectness * class_conf
         scores = preds[..., 4:5] * preds[..., 5:]
         class_ids = np.argmax(scores, axis=-1)
         confidences = np.max(scores, axis=-1)
@@ -57,13 +53,11 @@ class VehicleDetector:
         boxes = preds[..., :4][mask]
         confidences = confidences[mask]
         class_ids = class_ids[mask]
-        # xywh → xyxy 변환
         if boxes.shape[0] > 0:
             boxes = self.xywh2xyxy(boxes, orig_shape)
         return boxes, confidences, class_ids
 
     def xywh2xyxy(self, boxes, orig_shape):
-        # yolov5 onnx output은 xywh(0~640)
         h, w = orig_shape[:2]
         x = boxes[:, 0]
         y = boxes[:, 1]
@@ -79,7 +73,6 @@ class VehicleDetector:
         now = time.time()
         if now - self.last_alert_time > self.cooldown_time:
             self.last_alert_time = now
-            # 5초 동안 반복 재생 (음원 길이와 무관)
             t_end = now + self.sound_duration
             while time.time() < t_end:
                 playsound(SOUND_PATH, block=False)

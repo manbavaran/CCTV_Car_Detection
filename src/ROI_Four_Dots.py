@@ -19,7 +19,6 @@ class ROIDrawer(QWidget):
         # 실제(가상) 카메라 프레임
         self.frame = self.capture_frame()
         self.orig_h, self.orig_w = self.frame.shape[:2]
-        # 최대화 화면에 맞춰 리사이즈(표시용)
         self.display_img = cv2.resize(self.frame, (self.display_w, self.display_h))
         self.qimage = QImage(
             cv2.cvtColor(self.display_img, cv2.COLOR_BGR2RGB).data,
