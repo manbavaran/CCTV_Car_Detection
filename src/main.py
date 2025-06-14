@@ -35,9 +35,7 @@ class MainWindow(QWidget):
         self.roi_btn.clicked.connect(self.open_roi_setter)
         self.preview_btn.clicked.connect(self.open_preview)
         self.close_btn.clicked.connect(self.close)
-        
-        self.detector_window.closed.connect(self.stop_detection)
-        self.preview_window.closed.connect(self.close_preview)
+
 
         # 버튼을 가운데 정렬된 레이아웃에 배치
         layout = QVBoxLayout()
@@ -54,7 +52,7 @@ class MainWindow(QWidget):
 
         self.detector_window = None
         self.preview_window = None
-
+        
     def start_detection(self):
         if self.detector_window is None:
             self.detector_window = VehicleDetector()
