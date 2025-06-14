@@ -3,9 +3,10 @@ import cv2
 import numpy as np
 from PyQt5.QtWidgets import QApplication, QLabel, QWidget, QVBoxLayout
 from PyQt5.QtGui import QImage, QPixmap, QCursor
-from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 
 class VideoWindow(QWidget):
+    closed = pyqtSignal()
     def __init__(self):
         super().__init__()
         self.setWindowTitle("OBS Camera")
@@ -32,8 +33,13 @@ class VideoWindow(QWidget):
             self.label.setPixmap(QPixmap.fromImage(img))
 
     def closeEvent(self, event):
-        self.cap.release()
+        self.closed.emit()  # X버튼
         event.accept()
+        
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Escape, Qt.Key_Q):
+            self.closed.emit()  # ESC, Q키
+            self.close()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

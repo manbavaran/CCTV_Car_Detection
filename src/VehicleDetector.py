@@ -7,7 +7,7 @@ import numpy as np
 import onnxruntime as ort
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QMessageBox, QApplication
 from PyQt5.QtGui import QImage, QPixmap
-from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 
 from roi_io import load_roi
 from logger import log_event
@@ -20,13 +20,21 @@ def play_alert_sound(volume=1.0, duration=2, total_time=5):
     sound_path = os.path.join(base_dir, "resources", "sounds", "Car_Alarm.mp3")
     try:
         pygame.mixer.init()
+        print("사운드 재생 시도 1")
         repeat = int(total_time / duration + 0.5)
+        print("사운드 재생 시도 2")
         for _ in range(repeat):
+            print("사운드 재생 시도 3")
             pygame.mixer.music.load(sound_path)
+            print("사운드 재생 시도 4")
             pygame.mixer.music.set_volume(volume)
+            print("사운드 재생 시도 5")
             pygame.mixer.music.play()
+            print("사운드 재생 시도 6")
             time.sleep(duration)
+            print("사운드 재생 시도 7")
             pygame.mixer.music.stop()
+            print("사운드 재생 시도 8")
     except Exception as e:
         print("알림음 재생 실패:", e)
 
@@ -88,6 +96,7 @@ def scale_box(box, src_size, dst_size):
     return [x1, y1, x2, y2]
 
 class VehicleDetector(QWidget):
+    closed = pyqtSignal()
     def __init__(self, volume=1.0, duration=2, total_time=5, cooldown=15, fps=5):
         super().__init__()
         self.setWindowTitle("차량 감지 시스템")
@@ -228,13 +237,14 @@ class VehicleDetector(QWidget):
         return cv2.pointPolygonTest(np.array(self.roi, dtype=np.int32), point, False) >= 0
 
     def closeEvent(self, event):
-        self.cap.release()
+        self.closed.emit()  # X버튼
         log_event("INFO", "차량 감지 종료")
         event.accept()
 
     def keyPressEvent(self, event):
         # ESC 또는 Q 키로 창 닫기
-        if event.key() == Qt.Key_Escape or event.key() == Qt.Key_Q:
+        if event.key() in (Qt.Key_Escape, Qt.Key_Q):
+            self.closed.emit()  # ESC, Q키
             self.close()
 
 if __name__ == "__main__":

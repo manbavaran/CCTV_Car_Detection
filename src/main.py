@@ -20,6 +20,10 @@ class MainWindow(QWidget):
         self.roi_btn = QPushButton("ROI 설정")
         self.preview_btn = QPushButton("미리보기")
         self.close_btn = QPushButton("종료")
+        
+        self.detector_window.closed.connect(self.stop_detection)
+        self.preview_window.closed.connect(self.close_preview)
+        
 
         # 버튼 크기 통일
         for btn in [self.detect_btn, self.stop_btn, self.roi_btn, self.preview_btn, self.close_btn]:
@@ -68,6 +72,11 @@ class MainWindow(QWidget):
             self.preview_window.show()
         else:
             QMessageBox.information(self, "알림", "이미 미리보기가 열려 있습니다.")
+    
+    def close_preview(self):
+        if self.preview_window is None:
+            self.preview_window.close()
+            self.preview_window = None
 
     def open_roi_setter(self):
         base_dir = os.getcwd()
@@ -83,12 +92,20 @@ class MainWindow(QWidget):
         else:
             py_path = os.path.join(base_dir, "ROI_Four_Dots.py")
             subprocess.Popen([sys.executable, py_path])
+            
+    def close_roi_setter(self):
+        if self.close_roi_setter is None:
+            self.close_roi_setter.close()
+            self.close_roi_setter = None
 
     def closeEvent(self, event):
         if self.detector_window is not None:
             self.detector_window.close()
+            self.detector_window = None
+            
         if self.preview_window is not None:
             self.preview_window.close()
+            self.preview_window = None
         event.accept()
 
 if __name__ == "__main__":

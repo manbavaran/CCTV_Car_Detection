@@ -2,11 +2,12 @@ import sys
 import cv2
 from PyQt5.QtWidgets import QApplication, QWidget, QMessageBox
 from PyQt5.QtGui import QPainter, QPen, QCursor, QImage, QColor
-from PyQt5.QtCore import Qt, QPoint
+from PyQt5.QtCore import Qt, QPoint, pyqtSignal
 
 from roi_io import save_roi
 
 class ROIDrawer(QWidget):
+    closed = pyqtSignal()
     def __init__(self):
         super().__init__()
         self.setWindowTitle("ROI 설정 (최대화 + 모든 모니터/비율 완벽 대응)")
@@ -95,13 +96,12 @@ class ROIDrawer(QWidget):
                 self.update()
         elif event.key() == Qt.Key_S and (event.modifiers() & Qt.ControlModifier):
             self.save_points()
-        elif event.key() == Qt.Key_Escape:
-            self.save_points()
+        elif event.key() in (Qt.Key_Escape, Qt.Key_Q):
+            self.closed.emit()  # ESC, Q키
             self.close()
 
     def closeEvent(self, event):
-        if not self.saved:
-            self.save_points()
+        self.closed.emit()  # X버튼
         event.accept()
 
     def save_points(self):
