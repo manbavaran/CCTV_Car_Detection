@@ -21,8 +21,6 @@ class MainWindow(QWidget):
         self.preview_btn = QPushButton("미리보기")
         self.close_btn = QPushButton("종료")
         
-        self.detector_window.closed.connect(self.stop_detection)
-        self.preview_window.closed.connect(self.close_preview)
         
 
         # 버튼 크기 통일
@@ -37,6 +35,9 @@ class MainWindow(QWidget):
         self.roi_btn.clicked.connect(self.open_roi_setter)
         self.preview_btn.clicked.connect(self.open_preview)
         self.close_btn.clicked.connect(self.close)
+        
+        self.detector_window.closed.connect(self.stop_detection)
+        self.preview_window.closed.connect(self.close_preview)
 
         # 버튼을 가운데 정렬된 레이아웃에 배치
         layout = QVBoxLayout()
@@ -57,6 +58,7 @@ class MainWindow(QWidget):
     def start_detection(self):
         if self.detector_window is None:
             self.detector_window = VehicleDetector()
+            self.detector_window.closed.connect(self.stop_detection)
             self.detector_window.show()
         else:
             QMessageBox.information(self, "알림", "이미 감지 중입니다.")
@@ -69,6 +71,7 @@ class MainWindow(QWidget):
     def open_preview(self):
         if self.preview_window is None:
             self.preview_window = VideoWindow()
+            self.preview_window.closed.connect(self.close_preview)
             self.preview_window.show()
         else:
             QMessageBox.information(self, "알림", "이미 미리보기가 열려 있습니다.")
