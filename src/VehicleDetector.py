@@ -214,16 +214,14 @@ class VehicleDetector(QWidget):
 
         now = time.time()
         # 알람 재생 중이 아니고, 쿨타임이 지났을 때만 알람 재생
-        if count > 0 and (now - self.last_alert_time > self.cooldown) and not self.is_alerting:
+        if count > 0 and (now - self.last_alert_time > 20) and not self.is_alerting:
             self.is_alerting = True
-            self.last_alert_time = now
-
             def finish_alert():
-                play_alert_sound(self.volume, self.duration, self.total_time)
+                play_alert_sound(self.volume, self.duration, self.total_time)  # 5초
+                self.last_alert_time = time.time()  # "알람 끝난 직후" 기준으로 쿨타임 갱신
                 self.is_alerting = False
-
             threading.Thread(target=finish_alert, daemon=True).start()
-            log_event("ALERT", "차량 감지 알림 발생")
+            log_event("ALERT", "차량 감지 알림 발생")       
 
     def is_inside_roi(self, point):
         # point는 원본 해상도 기준이어야 함
